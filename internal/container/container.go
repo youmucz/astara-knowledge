@@ -188,12 +188,26 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		must(container.Provide(repository.NewTenantDisabledSharedAgentRepository))
 		must(container.Provide(repository.NewUserResourceFavoriteRepository))
 		must(container.Provide(service.NewWebSearchStateService))
+	} else {
+		// ModelService's usage diagnostics still reference agents; under the
+		// knowledge-only profile agents do not exist, so a disabled repository
+		// keeps the DI graph closed without registering the agent table.
+		must(container.Provide(newDisabledCustomAgentRepository, dig.As(new(interfaces.CustomAgentRepository))))
+		// Knowledge-base handlers still resolve "visible via shared agent"
+		// scopes; the disabled share service answers not-visible without the
+		// agent-share storage that the profile omits.
+		must(container.Provide(newDisabledAgentShareService, dig.As(new(interfaces.AgentShareService))))
 	}
 	must(container.Provide(repository.NewDataSourceRepository))
 	must(container.Provide(repository.NewSyncLogRepository))
 	must(container.Provide(repository.NewWikiPageRepository))
 	if !knowledgeOnly {
 		must(container.Provide(repository.NewMemoryRepository))
+	} else {
+		// Wiki handlers accept a memory service for familiar-knowledge
+		// ranking; under the profile memory does not exist and ranking
+		// contributes nothing.
+		must(container.Provide(newDisabledMemoryService, dig.As(new(interfaces.MemoryService))))
 	}
 	must(container.Provide(repository.NewTaskPendingOpsRepository))
 	must(container.Provide(repository.NewTaskDeadLetterRepository))
@@ -535,6 +549,50 @@ func (*disabledGraphRepository) DelGraph(context.Context, []types.NameSpace) err
 
 func (*disabledGraphRepository) SearchNode(context.Context, types.NameSpace, []string) (*types.GraphData, error) {
 	return nil, errors.New("GraphRAG is disabled by the active feature profile")
+}
+
+type disabledCustomAgentRepository struct{}
+
+func newDisabledCustomAgentRepository() *disabledCustomAgentRepository { return &disabledCustomAgentRepository{} }
+
+var errAgentsDisabled = errors.New("agents are disabled by the active feature profile")
+
+func (*disabledCustomAgentRepository) CreateAgent(context.Context, *types.CustomAgent) error {
+	return errAgentsDisabled
+}
+
+func (*disabledCustomAgentRepository) GetAgentByID(context.Context, string, uint64) (*types.CustomAgent, error) {
+	return nil, errAgentsDisabled
+}
+
+func (*disabledCustomAgentRepository) ListAgentsByTenantID(context.Context, uint64) ([]*types.CustomAgent, error) {
+	return nil, errAgentsDisabled
+}
+
+func (*disabledCustomAgentRepository) UpdateAgent(context.Context, *types.CustomAgent) error {
+	return errAgentsDisabled
+}
+
+func (*disabledCustomAgentRepository) DeleteAgent(context.Context, string, uint64) error {
+	return errAgentsDisabled
+}
+
+// Agents cannot exist under the knowledge-only profile, so model usage
+// diagnostics see a stable zero instead of a missing dependency.
+func (*disabledCustomAgentRepository) CountByModelID(context.Context, uint64, string) (int64, error) {
+	return 0, nil
+}
+
+func (*disabledCustomAgentRepository) ListModelUsages(context.Context, uint64, string) ([]types.ModelUsageResource, error) {
+	return []types.ModelUsageResource{}, nil
+}
+
+func (*disabledCustomAgentRepository) CountBySandboxConfigID(context.Context, uint64, string) (int64, error) {
+	return 0, nil
+}
+
+func (*disabledCustomAgentRepository) ListNamesBySandboxConfigID(context.Context, uint64, string) ([]string, error) {
+	return []string{}, nil
 }
 
 // registerChatLocalImageResolver wires the chat package's LocalImageResolver
