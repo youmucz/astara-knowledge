@@ -51,6 +51,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/application/service/file"
 	"github.com/Tencent/WeKnora/internal/application/service/memory"
 	"github.com/Tencent/WeKnora/internal/application/service/retriever"
+	"github.com/Tencent/WeKnora/internal/astara"
 	"github.com/Tencent/WeKnora/internal/common"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/database"
@@ -108,6 +109,10 @@ import (
 func BuildContainer(container *dig.Container) *dig.Container {
 	ctx := context.Background()
 	logger.Debugf(ctx, "[Container] Starting container initialization...")
+	profile := astara.CurrentProfile()
+	// Invalid/unknown profiles are even more restricted than the canonical
+	// profile: readiness fails and prohibited constructors remain unregistered.
+	knowledgeOnly := restrictedRuntime(profile)
 
 	// Register resource cleaner for proper cleanup of resources
 	must(container.Provide(NewResourceCleaner, dig.As(new(interfaces.ResourceCleaner))))
@@ -135,11 +140,15 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(initDocReaderClient))
 	must(container.Provide(docparser.NewImageResolver))
 	must(container.Provide(initOllamaService))
-	must(container.Provide(initNeo4jClient))
+	if !knowledgeOnly {
+		must(container.Provide(initNeo4jClient))
+	}
 	must(container.Provide(stream.NewStreamManager))
-	logger.Debugf(ctx, "[Container] Initializing DuckDB...")
-	must(container.Provide(NewDuckDB))
-	logger.Debugf(ctx, "[Container] DuckDB registered")
+	if !knowledgeOnly {
+		logger.Debugf(ctx, "[Container] Initializing DuckDB...")
+		must(container.Provide(NewDuckDB))
+		logger.Debugf(ctx, "[Container] DuckDB registered")
+	}
 
 	// Data repositories layer
 	logger.Debugf(ctx, "[Container] Registering repositories...")
@@ -153,48 +162,57 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewKnowledgeSpanRepository))
 	must(container.Provide(repository.NewChunkRepository))
 	must(container.Provide(repository.NewKnowledgeTagRepository))
-	must(container.Provide(repository.NewSessionRepository))
-	must(container.Provide(repository.NewMessageRepository))
-	must(container.Provide(repository.NewMessageSuggestionRepository))
 	must(container.Provide(repository.NewModelRepository))
 	must(container.Provide(repository.NewUserRepository))
 	must(container.Provide(repository.NewAuthTokenRepository))
 	must(container.Provide(repository.NewSystemSettingRepository))
-	must(container.Provide(neo4jRepo.NewNeo4jRepository))
-	must(container.Provide(repository.NewMCPServiceRepository))
-	must(container.Provide(repository.NewMCPToolApprovalRepository))
-	must(container.Provide(repository.NewMCPOAuthRepository))
-	must(container.Provide(repository.NewTenantSandboxConfigRepository))
-	must(container.Provide(repository.NewTenantSkillRepository))
-	must(container.Provide(repository.NewCustomAgentRepository))
+	if knowledgeOnly {
+		must(container.Provide(newDisabledGraphRepository, dig.As(new(interfaces.RetrieveGraphRepository))))
+	} else {
+		must(container.Provide(neo4jRepo.NewNeo4jRepository))
+	}
 	must(container.Provide(repository.NewOrganizationRepository))
 	must(container.Provide(repository.NewKBShareRepository))
-	must(container.Provide(repository.NewAgentShareRepository))
-	must(container.Provide(repository.NewEmbedChannelRepository))
-	must(container.Provide(repository.NewTenantDisabledSharedAgentRepository))
-	must(container.Provide(repository.NewUserResourceFavoriteRepository))
-	must(container.Provide(service.NewWebSearchStateService))
+	if !knowledgeOnly {
+		must(container.Provide(repository.NewSessionRepository))
+		must(container.Provide(repository.NewMessageRepository))
+		must(container.Provide(repository.NewMessageSuggestionRepository))
+		must(container.Provide(repository.NewMCPServiceRepository))
+		must(container.Provide(repository.NewMCPToolApprovalRepository))
+		must(container.Provide(repository.NewMCPOAuthRepository))
+		must(container.Provide(repository.NewTenantSandboxConfigRepository))
+		must(container.Provide(repository.NewTenantSkillRepository))
+		must(container.Provide(repository.NewCustomAgentRepository))
+		must(container.Provide(repository.NewAgentShareRepository))
+		must(container.Provide(repository.NewEmbedChannelRepository))
+		must(container.Provide(repository.NewTenantDisabledSharedAgentRepository))
+		must(container.Provide(repository.NewUserResourceFavoriteRepository))
+		must(container.Provide(service.NewWebSearchStateService))
+	}
 	must(container.Provide(repository.NewDataSourceRepository))
 	must(container.Provide(repository.NewSyncLogRepository))
 	must(container.Provide(repository.NewWikiPageRepository))
-	must(container.Provide(repository.NewMemoryRepository))
+	if !knowledgeOnly {
+		must(container.Provide(repository.NewMemoryRepository))
+	}
 	must(container.Provide(repository.NewTaskPendingOpsRepository))
 	must(container.Provide(repository.NewTaskDeadLetterRepository))
 
 	// MCP manager for managing MCP client connections
-	logger.Debugf(ctx, "[Container] Registering MCP manager...")
-	must(container.Provide(mcp.NewMCPManager))
-	must(container.Provide(mcp.NewOAuthManager))
+	if !knowledgeOnly {
+		logger.Debugf(ctx, "[Container] Registering MCP manager...")
+		must(container.Provide(mcp.NewMCPManager))
+		must(container.Provide(mcp.NewOAuthManager))
+	}
 
 	// Sandbox manager fallback is disabled; executable backends are resolved
 	// from named workspace configurations.
-	logger.Debugf(ctx, "[Container] Registering sandbox manager...")
-	must(container.Provide(newSandboxManager))
-	// Per-tenant sandbox backends: the resolver builds a manager per request
-	// from the tenant's own configuration, falling back to the singleton above
-	// for tenants that configured nothing.
-	must(container.Provide(service.NewTenantSandboxConfigLoader))
-	must(container.Provide(newTenantSandboxResolver))
+	if !knowledgeOnly {
+		logger.Debugf(ctx, "[Container] Registering sandbox manager...")
+		must(container.Provide(newSandboxManager))
+		must(container.Provide(service.NewTenantSandboxConfigLoader))
+		must(container.Provide(newTenantSandboxResolver))
+	}
 
 	// Business service layer
 	logger.Debugf(ctx, "[Container] Registering business services...")
@@ -207,63 +225,75 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewKnowledgeBaseService))
 	must(container.Provide(service.NewOrganizationService))
 	must(container.Provide(service.NewKBShareService)) // KBShareService must be registered before KnowledgeService and KnowledgeTagService
-	must(container.Provide(service.NewAgentShareService))
 	must(container.Provide(service.NewKnowledgeService))
 	must(container.Provide(service.NewSpanTracker))
 	must(container.Provide(service.NewChunkService))
 	must(container.Provide(service.NewKnowledgeTagService))
 	must(container.Provide(embedding.NewBatchEmbedder))
 	must(container.Provide(service.NewModelService))
-	must(container.Provide(service.NewDatasetService))
-	must(container.Provide(service.NewEvaluationService))
 	must(container.Provide(service.NewUserService))
 	must(container.Provide(service.NewSystemSettingService))
-	must(container.Provide(func(
-		repo repository.TenantSandboxConfigRepository,
-		agents interfaces.CustomAgentRepository,
-		skills repository.TenantSkillRepository,
-		files interfaces.StorageBackendResolver,
-	) *service.TenantSandboxConfigService {
-		return service.NewTenantSandboxConfigService(repo, agents, buildGlobalSandboxConfig(), skills, files)
-	}))
-	must(container.Provide(func(s *service.TenantSandboxConfigService) service.WorkspaceSandboxPolicy {
-		return s
-	}))
-	must(container.Provide(service.NewWeKnoraCloudService))
+	if !knowledgeOnly {
+		must(container.Provide(service.NewAgentShareService))
+		must(container.Provide(service.NewDatasetService))
+		must(container.Provide(service.NewEvaluationService))
+		must(container.Provide(func(
+			repo repository.TenantSandboxConfigRepository,
+			agents interfaces.CustomAgentRepository,
+			skills repository.TenantSkillRepository,
+			files interfaces.StorageBackendResolver,
+		) *service.TenantSandboxConfigService {
+			return service.NewTenantSandboxConfigService(repo, agents, buildGlobalSandboxConfig(), skills, files)
+		}))
+		must(container.Provide(func(s *service.TenantSandboxConfigService) service.WorkspaceSandboxPolicy { return s }))
+		must(container.Provide(service.NewWeKnoraCloudService))
+	}
 
 	// Extract services - register individual extracters with names
-	must(container.Provide(service.NewChunkExtractService, dig.Name("chunkExtractor")))
-	must(container.Provide(service.NewDataTableSummaryService, dig.Name("dataTableSummary")))
+	if !knowledgeOnly {
+		must(container.Provide(service.NewChunkExtractService, dig.Name("chunkExtractor")))
+		must(container.Provide(service.NewDataTableSummaryService, dig.Name("dataTableSummary")))
+	}
 	must(container.Provide(service.NewImageMultimodalService, dig.Name("imageMultimodal")))
 	must(container.Provide(service.NewKnowledgePostProcessService, dig.Name("knowledgePostProcess")))
 	must(container.Provide(service.NewKnowledgeAutoTagService, dig.Name("knowledgeAutoTag")))
 
-	must(container.Provide(service.NewMessageService))
-	must(container.Provide(service.NewMessageSuggestionService))
-	must(container.Provide(service.NewMCPServiceService))
-	must(container.Provide(service.NewMCPToolApprovalService))
-	must(container.Provide(service.NewCustomAgentService))
-	must(container.Provide(service.NewUserResourceFavoriteService))
 	must(container.Provide(service.NewWikiPageService))
 	must(container.Provide(service.NewWikiIngestService, dig.Name("wikiIngest")))
 	must(container.Provide(service.NewWikiLintService))
-	must(container.Provide(service.NewEmbedChannelService))
+	if !knowledgeOnly {
+		must(container.Provide(service.NewMessageService))
+		must(container.Provide(service.NewMessageSuggestionService))
+		must(container.Provide(service.NewMCPServiceService))
+		must(container.Provide(service.NewMCPToolApprovalService))
+		must(container.Provide(service.NewCustomAgentService))
+		must(container.Provide(service.NewUserResourceFavoriteService))
+		must(container.Provide(service.NewEmbedChannelService))
+	}
 
 	// Web search service (needed by AgentService)
 	logger.Debugf(ctx, "[Container] Registering web search registry and providers...")
-	must(container.Provide(infra_web_search.NewRegistry))
-	must(container.Invoke(registerWebSearchProviders))
-	must(container.Provide(repository.NewWebSearchProviderRepository))
+	if !knowledgeOnly {
+		must(container.Provide(infra_web_search.NewRegistry))
+		must(container.Invoke(registerWebSearchProviders))
+	}
+	if !knowledgeOnly {
+		must(container.Provide(repository.NewWebSearchProviderRepository))
+	}
 	must(container.Provide(repository.NewVectorStoreRepository))
 	must(container.Provide(repository.NewStorageBackendRepository))
 	must(container.Provide(repository.NewResourceRepository))
-	must(container.Provide(repository.NewTemporaryDocumentRepository))
+	if !knowledgeOnly {
+		must(container.Provide(repository.NewTemporaryDocumentRepository))
+	}
 	must(container.Provide(service.NewResourceCatalog))
 	// TenantStoreOwnership adapter used by the retriever factory functions
 	// to verify that a resolved VectorStore belongs to the caller's tenant.
 	must(container.Provide(retriever.NewVectorStoreRepoOwnership))
-	must(container.Provide(service.NewWebSearchService))
-	must(container.Provide(service.NewWebSearchProviderService))
+	if !knowledgeOnly {
+		must(container.Provide(service.NewWebSearchService))
+		must(container.Provide(service.NewWebSearchProviderService))
+	}
 	must(container.Provide(NewEngineFactory))
 	// StoreRegistry: same instance as RetrieveEngineRegistry, exposed as StoreRegistry interface.
 	// NewRetrieveEngineRegistry always returns *retriever.RetrieveEngineRegistry which implements both.
@@ -281,35 +311,31 @@ func BuildContainer(container *dig.Container) *dig.Container {
 
 	// Agent service layer (requires event bus, web search service)
 	// SessionService is passed as parameter to CreateAgentEngine method when creating AgentService
-	logger.Debugf(ctx, "[Container] Registering event bus and agent service...")
-	must(container.Provide(event.NewEventBus))
-	must(container.Provide(service.NewSessionSandboxPinner))
-	must(container.Provide(func(cfg *config.Config, s interfaces.MCPToolApprovalService, rdb *redis.Client) *approval.Gate {
-		return approval.NewGate(cfg, &approval.Adapter{Svc: s}, rdb)
-	}))
-	// Expose Gate as MCPApproval interface so AgentService and others can depend on the abstraction.
-	must(container.Provide(func(g *approval.Gate) approval.MCPApproval { return g }))
-	must(container.Provide(service.NewAgentService))
+	if !knowledgeOnly {
+		logger.Debugf(ctx, "[Container] Registering event bus and agent service...")
+		must(container.Provide(event.NewEventBus))
+		must(container.Provide(service.NewSessionSandboxPinner))
+		must(container.Provide(func(cfg *config.Config, s interfaces.MCPToolApprovalService, rdb *redis.Client) *approval.Gate {
+			return approval.NewGate(cfg, &approval.Adapter{Svc: s}, rdb)
+		}))
+		must(container.Provide(func(g *approval.Gate) approval.MCPApproval { return g }))
+		must(container.Provide(service.NewAgentService))
+	}
 
 	// Session service (depends on agent service)
 	// SessionService is created after AgentService and passes itself to AgentService.CreateAgentEngine when needed
 	logger.Debugf(ctx, "[Container] Registering memory service...")
-	must(container.Provide(memory.NewMemoryService))
+	if !knowledgeOnly {
+		must(container.Provide(memory.NewMemoryService))
+	}
 
-	logger.Debugf(ctx, "[Container] Registering session service...")
-	must(container.Provide(service.NewSessionService))
-	must(container.Provide(service.NewTenantSkillService))
-	// The member-facing half of env vars is its own service because its
-	// authority is different in kind: it derives the identity from the context
-	// and touches only that identity's rows.
-	must(container.Provide(service.NewUserEnvService))
-
-	// ArtifactCollector drains skill-generated files from the sandbox on
-	// each agent turn (see spec at
-	// docs/superpowers/specs/2026-07-10-skill-artifact-download-design.md).
-	// The factory returns nil when the sandbox backend does not support
-	// per-session file inspection; downstream code guards on nil.
-	must(container.Provide(service.NewArtifactCollectorFromSandboxManager))
+	if !knowledgeOnly {
+		logger.Debugf(ctx, "[Container] Registering session service...")
+		must(container.Provide(service.NewSessionService))
+		must(container.Provide(service.NewTenantSkillService))
+		must(container.Provide(service.NewUserEnvService))
+		must(container.Provide(service.NewArtifactCollectorFromSandboxManager))
+	}
 
 	logger.Debugf(ctx, "[Container] Registering task enqueuer...")
 	redisAvailable := os.Getenv("REDIS_ADDR") != ""
@@ -331,7 +357,9 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		// Install the distributed per-model chat concurrency governor. Only
 		// available with Redis (the shared semaphore backend); Lite mode is
 		// single-process and low-volume, so it runs ungated.
-		must(container.Invoke(registerModelConcurrencyLimiter))
+		if profile.Valid {
+			must(container.Invoke(registerModelConcurrencyLimiter))
+		}
 	} else {
 		syncExec := router.NewSyncTaskExecutor()
 		must(container.Provide(func() interfaces.TaskEnqueuer { return syncExec }))
@@ -342,10 +370,14 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		must(container.Provide(router.NewNoopTaskInspector))
 		// Even without Redis, background ingestion/enrichment can burst the
 		// worker pool against one provider, so install an in-process governor.
-		must(container.Invoke(registerLiteModelConcurrencyLimiter))
+		if profile.Valid {
+			must(container.Invoke(registerLiteModelConcurrencyLimiter))
+		}
 	}
-	must(container.Provide(service.NewTemporaryDocumentService))
-	must(container.Invoke(startTemporaryDocumentCleanup))
+	if !knowledgeOnly {
+		must(container.Provide(service.NewTemporaryDocumentService))
+		must(container.Invoke(startTemporaryDocumentCleanup))
+	}
 
 	// Chat pipeline components for processing chat requests
 	logger.Debugf(ctx, "[Container] Registering chat pipeline plugins...")
@@ -355,39 +387,47 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(initConnectorRegistry))
 	must(container.Provide(datasource.NewScheduler))
 	must(container.Provide(service.NewDataSourceService))
-	must(container.Invoke(startDataSourceScheduler))
-	logger.Debugf(ctx, "[Container] Data source sync framework registered")
-	must(container.Invoke(startAuditLogRetention))
-	logger.Debugf(ctx, "[Container] Audit log retention runner registered")
+	if profile.Valid {
+		must(container.Invoke(startDataSourceScheduler))
+		logger.Debugf(ctx, "[Container] Data source sync framework registered")
+		must(container.Invoke(startAuditLogRetention))
+		logger.Debugf(ctx, "[Container] Audit log retention runner registered")
+	}
 	must(container.Provide(service.NewHousekeepingService))
-	must(container.Invoke(startHousekeepingService))
-	logger.Debugf(ctx, "[Container] Knowledge housekeeping runner registered")
-	must(container.Provide(chatpipeline.NewEventManager))
-	must(container.Invoke(chatpipeline.NewPluginSearch))
-	must(container.Invoke(chatpipeline.NewPluginRerank))
-	must(container.Invoke(chatpipeline.NewPluginWebFetch))
-	must(container.Invoke(chatpipeline.NewPluginMerge))
-	must(container.Invoke(chatpipeline.NewPluginDataAnalysis))
-	must(container.Invoke(chatpipeline.NewPluginIntoChatMessage))
-	must(container.Invoke(chatpipeline.NewPluginChatCompletion))
-	must(container.Invoke(chatpipeline.NewPluginChatCompletionStream))
-	must(container.Invoke(chatpipeline.NewPluginFilterTopK))
-	must(container.Invoke(chatpipeline.NewPluginQueryUnderstand))
-	must(container.Invoke(chatpipeline.NewPluginLoadHistory))
-	must(container.Invoke(chatpipeline.NewPluginMemoryRecall))
-	must(container.Invoke(chatpipeline.NewPluginExtractEntity))
-	must(container.Invoke(chatpipeline.NewPluginSearchEntity))
-	must(container.Invoke(chatpipeline.NewPluginSearchParallel))
-	must(container.Invoke(chatpipeline.NewPluginWikiBoost))
-	must(container.Invoke(chatpipeline.NewPluginMemoryAffinity))
-	logger.Debugf(ctx, "[Container] Chat pipeline plugins registered")
+	if profile.Valid {
+		must(container.Invoke(startHousekeepingService))
+		logger.Debugf(ctx, "[Container] Knowledge housekeeping runner registered")
+	}
+	if !knowledgeOnly {
+		must(container.Provide(chatpipeline.NewEventManager))
+		must(container.Invoke(chatpipeline.NewPluginSearch))
+		must(container.Invoke(chatpipeline.NewPluginRerank))
+		must(container.Invoke(chatpipeline.NewPluginWebFetch))
+		must(container.Invoke(chatpipeline.NewPluginMerge))
+		must(container.Invoke(chatpipeline.NewPluginDataAnalysis))
+		must(container.Invoke(chatpipeline.NewPluginIntoChatMessage))
+		must(container.Invoke(chatpipeline.NewPluginChatCompletion))
+		must(container.Invoke(chatpipeline.NewPluginChatCompletionStream))
+		must(container.Invoke(chatpipeline.NewPluginFilterTopK))
+		must(container.Invoke(chatpipeline.NewPluginQueryUnderstand))
+		must(container.Invoke(chatpipeline.NewPluginLoadHistory))
+		must(container.Invoke(chatpipeline.NewPluginMemoryRecall))
+		must(container.Invoke(chatpipeline.NewPluginExtractEntity))
+		must(container.Invoke(chatpipeline.NewPluginSearchEntity))
+		must(container.Invoke(chatpipeline.NewPluginSearchParallel))
+		must(container.Invoke(chatpipeline.NewPluginWikiBoost))
+		must(container.Invoke(chatpipeline.NewPluginMemoryAffinity))
+		logger.Debugf(ctx, "[Container] Chat pipeline plugins registered")
+	}
 
 	// TenantSkillService is provided next to SessionService (handlers need
 	// it), but Invoke constructs the whole chain. SessionService needs
 	// *chatpipeline.EventManager, which only exists after the pipeline
 	// block above — starting the reaper any earlier panics.
-	must(container.Invoke(startTenantSkillReaper))
-	logger.Debugf(ctx, "[Container] Tenant skill reaper registered")
+	if !knowledgeOnly {
+		must(container.Invoke(startTenantSkillReaper))
+		logger.Debugf(ctx, "[Container] Tenant skill reaper registered")
+	}
 
 	// HTTP handlers layer
 	logger.Debugf(ctx, "[Container] Registering HTTP handlers...")
@@ -400,74 +440,101 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewChunkHandler))
 	must(container.Provide(handler.NewFAQHandler))
 	must(container.Provide(handler.NewTagHandler))
-	must(container.Provide(session.NewHandler))
-	must(container.Provide(handler.NewMessageHandler))
-	must(container.Provide(handler.NewMessageSuggestionHandler))
 	must(container.Provide(handler.NewModelHandler))
-	must(container.Provide(handler.NewSandboxConfigHandler))
-	must(container.Provide(func(
-		s *service.TenantSkillService, streams interfaces.StreamManager,
-	) *handler.SandboxSkillHandler {
-		return handler.NewSandboxSkillHandler(s, streams)
-	}))
-	must(container.Provide(handler.NewMeEnvVarHandler))
-	must(container.Provide(handler.NewEvaluationHandler))
 	must(container.Provide(handler.NewInitializationHandler))
 	must(container.Provide(handler.NewAuthHandler))
-	must(container.Provide(handler.NewSystemHandler))
-	must(container.Provide(handler.NewMCPServiceHandler))
-	must(container.Provide(handler.NewMCPCredentialsHandler))
-	must(container.Provide(handler.NewMCPOAuthHandler))
+	if !knowledgeOnly {
+		must(container.Provide(handler.NewSystemHandler))
+	}
 	must(container.Provide(handler.NewModelCredentialsHandler))
-	must(container.Provide(handler.NewWebSearchProviderCredentialsHandler))
 	must(container.Provide(handler.NewDataSourceCredentialsHandler))
-	must(container.Provide(handler.NewWebSearchHandler))
-	must(container.Provide(handler.NewWebSearchProviderHandler))
 	must(container.Provide(handler.NewVectorStoreHandler))
 	must(container.Provide(handler.NewStorageBackendHandler))
-	must(container.Provide(handler.NewCustomAgentHandler))
-	must(container.Provide(handler.NewUserResourceFavoriteHandler))
-	must(container.Provide(service.NewSkillService))
-	must(container.Provide(func(s *service.TenantSkillService) *handler.SkillHandler {
-		return handler.NewSkillHandler(s, s)
-	}))
-	must(container.Provide(handler.NewOrganizationHandler))
-	must(container.Provide(handler.NewMemoryHandler))
+	if !knowledgeOnly {
+		must(container.Provide(session.NewHandler))
+		must(container.Provide(handler.NewMessageHandler))
+		must(container.Provide(handler.NewMessageSuggestionHandler))
+		must(container.Provide(handler.NewSandboxConfigHandler))
+		must(container.Provide(func(s *service.TenantSkillService, streams interfaces.StreamManager) *handler.SandboxSkillHandler {
+			return handler.NewSandboxSkillHandler(s, streams)
+		}))
+		must(container.Provide(handler.NewMeEnvVarHandler))
+		must(container.Provide(handler.NewEvaluationHandler))
+		must(container.Provide(handler.NewMCPServiceHandler))
+		must(container.Provide(handler.NewMCPCredentialsHandler))
+		must(container.Provide(handler.NewMCPOAuthHandler))
+		must(container.Provide(handler.NewWebSearchProviderCredentialsHandler))
+		must(container.Provide(handler.NewWebSearchHandler))
+		must(container.Provide(handler.NewWebSearchProviderHandler))
+		must(container.Provide(handler.NewCustomAgentHandler))
+		must(container.Provide(handler.NewUserResourceFavoriteHandler))
+		must(container.Provide(service.NewSkillService))
+		must(container.Provide(func(s *service.TenantSkillService) *handler.SkillHandler { return handler.NewSkillHandler(s, s) }))
+		must(container.Provide(handler.NewOrganizationHandler))
+		must(container.Provide(handler.NewMemoryHandler))
+	}
 
 	// Data source handler
 	must(container.Provide(handler.NewDataSourceHandler))
 	// Wiki page handler
 	must(container.Provide(handler.NewWikiPageHandler))
+	must(container.Provide(handler.NewAstaraControlPlaneHandler))
 	// IM integration
 	logger.Debugf(ctx, "[Container] Registering IM integration...")
-	must(container.Provide(imPkg.NewService))
-	must(container.Invoke(registerIMService))
-	must(container.Provide(handler.NewIMHandler))
-	must(container.Provide(handler.NewEmbedChannelHandler))
-	must(container.Provide(handler.NewWeKnoraCloudHandler))
+	if !knowledgeOnly {
+		must(container.Provide(imPkg.NewService))
+		must(container.Invoke(registerIMService))
+		must(container.Provide(handler.NewIMHandler))
+		must(container.Provide(handler.NewEmbedChannelHandler))
+		must(container.Provide(handler.NewWeKnoraCloudHandler))
+	}
 	logger.Debugf(ctx, "[Container] HTTP handlers registered")
 
 	// Wire the chat package's local image resolver so multimodal chat can read
 	// local:// images that live under a tenant's configured storage PathPrefix
 	// (which is not encoded in the local:// URL).
-	must(container.Invoke(registerChatLocalImageResolver))
+	if !knowledgeOnly {
+		must(container.Invoke(registerChatLocalImageResolver))
+	}
 
 	// Router configuration
 	logger.Debugf(ctx, "[Container] Registering router and starting task server...")
 	must(container.Provide(router.NewRouter))
-	if redisAvailable {
-		must(container.Invoke(router.RunAsynqServer))
-	} else {
-		must(container.Invoke(router.RegisterSyncHandlers))
+	if shouldStartProfileWorkers(profile) {
+		if redisAvailable {
+			must(container.Invoke(router.RunAsynqServer))
+		} else {
+			must(container.Invoke(router.RegisterSyncHandlers))
+		}
+		// Wiki operation rows are durable, while their wake-up triggers may be
+		// lost across a process restart. Re-arm only in a valid profile.
+		must(container.Invoke(recoverPendingWikiTasks))
 	}
-	// Wiki operation rows are durable, while their wake-up triggers may be
-	// lost across a process restart (always in Lite mode, and in Redis mode if
-	// persistence succeeded immediately before trigger enqueue failed). Re-arm
-	// them only after the matching handlers are ready.
-	must(container.Invoke(recoverPendingWikiTasks))
 
 	logger.Infof(ctx, "[Container] Container initialization completed successfully")
 	return container
+}
+
+func restrictedRuntime(profile astara.Profile) bool {
+	return !profile.Enabled(astara.FeatureAgent)
+}
+
+func shouldStartProfileWorkers(profile astara.Profile) bool { return profile.Valid }
+
+type disabledGraphRepository struct{}
+
+func newDisabledGraphRepository() *disabledGraphRepository { return &disabledGraphRepository{} }
+
+func (*disabledGraphRepository) AddGraph(context.Context, types.NameSpace, []*types.GraphData) error {
+	return errors.New("GraphRAG is disabled by the active feature profile")
+}
+
+func (*disabledGraphRepository) DelGraph(context.Context, []types.NameSpace) error {
+	return errors.New("GraphRAG is disabled by the active feature profile")
+}
+
+func (*disabledGraphRepository) SearchNode(context.Context, types.NameSpace, []string) (*types.GraphData, error) {
+	return nil, errors.New("GraphRAG is disabled by the active feature profile")
 }
 
 // registerChatLocalImageResolver wires the chat package's LocalImageResolver

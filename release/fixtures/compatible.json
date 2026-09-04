@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "implementation_version": "0.1.0-astara.1",
+  "upstream_baseline": "v0.8.0",
+  "upstream_commit": "1edcd54b43606d9079bb36650efe3f68707a79ea",
+  "feature_profile": "astara-knowledge",
+  "contracts": {"api": 1, "ui": 1, "source": 1, "tool": 1, "readiness": 1, "migration": 1},
+  "images": {
+    "api": "ghcr.io/youmucz/astara-knowledge-api:0.1.0-astara.1",
+    "web": "ghcr.io/youmucz/astara-knowledge-web:0.1.0-astara.1",
+    "docreader": "ghcr.io/youmucz/astara-knowledge-docreader:0.1.0-astara.1"
+  }
+}

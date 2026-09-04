@@ -7,8 +7,8 @@ import {
   type DeploymentCapabilityMap,
 } from './deploymentCapabilities'
 
-test('capability filtering is fail-open unless backend explicitly disables a feature', () => {
-  assert.equal(isDeploymentCapabilitySupported({}, 'organizations'), true)
+test('capability filtering fails closed when discovery is missing or incomplete', () => {
+  assert.equal(isDeploymentCapabilitySupported({}, 'organizations'), false)
 
   const capabilities: DeploymentCapabilityMap = {
     organizations: { supported: false, reason: 'not_supported_in_lite' },
@@ -18,7 +18,7 @@ test('capability filtering is fail-open unless backend explicitly disables a fea
   assert.equal(isDeploymentCapabilitySupported(capabilities, 'agents'), true)
 })
 
-test('organizations stay hidden in lite even when capabilities fail open', () => {
+test('missing capabilities stay hidden in lite and standard deployments', () => {
   assert.equal(
     isDeploymentCapabilitySupported({}, 'organizations', { liteMode: true }),
     false,
@@ -29,7 +29,7 @@ test('organizations stay hidden in lite even when capabilities fail open', () =>
   )
   assert.equal(
     isDeploymentCapabilitySupported({}, 'agents', { liteMode: true }),
-    true,
+    false,
   )
 })
 

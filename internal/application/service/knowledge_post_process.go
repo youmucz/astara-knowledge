@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/astara"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/tracing/langfuse"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -207,7 +208,7 @@ func (s *KnowledgePostProcessService) Handle(ctx context.Context, task *asynq.Ta
 	questionBatchCount := (len(questionChunks) + questionGenChunkBatchSize - 1) / questionGenChunkBatchSize
 
 	graphChunkCount := 0
-	if eff.GraphEnabled {
+	if eff.GraphEnabled && !astara.CurrentProfile().Valid {
 		graphChunkCount = len(textChunks)
 	}
 	expectedSubtasks := 0

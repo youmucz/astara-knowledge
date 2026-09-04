@@ -123,23 +123,29 @@ type SyncTaskParams struct {
 	KnowledgeBaseService interfaces.KnowledgeBaseService
 	TagService           interfaces.KnowledgeTagService
 	DataSourceService    interfaces.DataSourceService
-	ChunkExtractor       interfaces.TaskHandler `name:"chunkExtractor"`
-	DataTableSummary     interfaces.TaskHandler `name:"dataTableSummary"`
-	ImageMultimodal      interfaces.TaskHandler `name:"imageMultimodal"`
-	KnowledgePostProcess interfaces.TaskHandler `name:"knowledgePostProcess"`
-	KnowledgeAutoTag     interfaces.TaskHandler `name:"knowledgeAutoTag"`
-	WikiIngest           interfaces.TaskHandler `name:"wikiIngest"`
-	TemporaryDocument    interfaces.TemporaryDocumentService
-	MemoryService        interfaces.MemoryService
+	ChunkExtractor       interfaces.TaskHandler              `name:"chunkExtractor" optional:"true"`
+	DataTableSummary     interfaces.TaskHandler              `name:"dataTableSummary" optional:"true"`
+	ImageMultimodal      interfaces.TaskHandler              `name:"imageMultimodal"`
+	KnowledgePostProcess interfaces.TaskHandler              `name:"knowledgePostProcess"`
+	KnowledgeAutoTag     interfaces.TaskHandler              `name:"knowledgeAutoTag"`
+	WikiIngest           interfaces.TaskHandler              `name:"wikiIngest"`
+	TemporaryDocument    interfaces.TemporaryDocumentService `optional:"true"`
+	MemoryService        interfaces.MemoryService            `optional:"true"`
 }
 
 // RegisterSyncHandlers registers all task handlers on the SyncTaskExecutor.
 // Used in Lite mode instead of RunAsynqServer.
 func RegisterSyncHandlers(params SyncTaskParams) {
-	params.Executor.RegisterHandler(types.TypeChunkExtract, params.ChunkExtractor.Handle)
-	params.Executor.RegisterHandler(types.TypeDataTableSummary, params.DataTableSummary.Handle)
+	if params.ChunkExtractor != nil {
+		params.Executor.RegisterHandler(types.TypeChunkExtract, params.ChunkExtractor.Handle)
+	}
+	if params.DataTableSummary != nil {
+		params.Executor.RegisterHandler(types.TypeDataTableSummary, params.DataTableSummary.Handle)
+	}
 	params.Executor.RegisterHandler(types.TypeDocumentProcess, params.KnowledgeService.ProcessDocument)
-	params.Executor.RegisterHandler(types.TypeTemporaryDocumentProcess, params.TemporaryDocument.Process)
+	if params.TemporaryDocument != nil {
+		params.Executor.RegisterHandler(types.TypeTemporaryDocumentProcess, params.TemporaryDocument.Process)
+	}
 	params.Executor.RegisterHandler(types.TypeManualProcess, params.KnowledgeService.ProcessManualUpdate)
 	params.Executor.RegisterHandler(types.TypeFAQImport, params.KnowledgeService.ProcessFAQImport)
 	params.Executor.RegisterHandler(types.TypeQuestionGeneration, params.KnowledgeService.ProcessQuestionGeneration)
@@ -156,6 +162,8 @@ func RegisterSyncHandlers(params SyncTaskParams) {
 	params.Executor.RegisterHandler(types.TypeDataSourceSync, params.DataSourceService.ProcessSync)
 	params.Executor.RegisterHandler(types.TypeWikiIngest, params.WikiIngest.Handle)
 	params.Executor.RegisterHandler(types.TypeWikiFinalize, params.WikiIngest.Handle)
-	params.Executor.RegisterHandler(types.TypeMemoryExtract, params.MemoryService.Handle)
+	if params.MemoryService != nil {
+		params.Executor.RegisterHandler(types.TypeMemoryExtract, params.MemoryService.Handle)
+	}
 	logger.Infof(context.Background(), "[SyncTask] All task handlers registered (Lite mode, no Redis)")
 }

@@ -59,6 +59,10 @@ const (
 type KnowledgeBase struct {
 	// Unique identifier of the knowledge base
 	ID string `yaml:"id"                      json:"id"                      gorm:"type:varchar(36);primaryKey"`
+	// ExternalSystem and ExternalID are scoped to the owning tenant and make
+	// control-plane provisioning idempotent across timeouts and retries.
+	ExternalSystem *string `yaml:"external_system" json:"external_system,omitempty" gorm:"type:varchar(64)"`
+	ExternalID     *string `yaml:"external_id" json:"external_id,omitempty" gorm:"type:varchar(255)"`
 	// Name of the knowledge base
 	Name string `yaml:"name"                    json:"name"`
 	// Type of the knowledge base (document, faq, etc.)

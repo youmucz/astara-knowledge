@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/application/service/retriever"
+	"github.com/Tencent/WeKnora/internal/astara"
 	"github.com/Tencent/WeKnora/internal/datasource"
 	apperrors "github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -135,6 +136,12 @@ func (s *knowledgeBaseService) CreateKnowledgeBase(ctx context.Context,
 		kb.CreatorID = uid
 	}
 	kb.EnsureDefaults()
+	if astara.CurrentProfile().Valid {
+		kb.IndexingStrategy.GraphEnabled = false
+		if kb.ExtractConfig != nil {
+			kb.ExtractConfig.Enabled = false
+		}
+	}
 	applyTenantDefaultStorageProvider(ctx, kb)
 	if err := s.applyAndValidateStorageBackend(ctx, kb); err != nil {
 		return nil, err
@@ -538,6 +545,9 @@ func (s *knowledgeBaseService) UpdateKnowledgeBase(ctx context.Context,
 		}
 		// Update indexing strategy — syncs to ExtractConfig for backward compat
 		if config.IndexingStrategy != nil {
+			if astara.CurrentProfile().Valid && config.IndexingStrategy.GraphEnabled {
+				return nil, errors.New("GraphRAG is disabled by the active feature profile")
+			}
 			if !config.IndexingStrategy.HasAnyIndexing() {
 				return nil, errors.New("at least one indexing strategy must be enabled")
 			}

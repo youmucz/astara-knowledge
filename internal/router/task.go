@@ -19,6 +19,8 @@ import (
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/hibiken/asynq"
 	"go.uber.org/dig"
+
+	"github.com/Tencent/WeKnora/internal/astara"
 )
 
 type AsynqTaskParams struct {
@@ -38,14 +40,14 @@ type AsynqTaskParams struct {
 	KnowledgeBaseService interfaces.KnowledgeBaseService
 	TagService           interfaces.KnowledgeTagService
 	DataSourceService    interfaces.DataSourceService
-	ChunkExtractor       interfaces.TaskHandler `name:"chunkExtractor"`
-	DataTableSummary     interfaces.TaskHandler `name:"dataTableSummary"`
-	ImageMultimodal      interfaces.TaskHandler `name:"imageMultimodal"`
-	KnowledgePostProcess interfaces.TaskHandler `name:"knowledgePostProcess"`
-	KnowledgeAutoTag     interfaces.TaskHandler `name:"knowledgeAutoTag"`
-	WikiIngest           interfaces.TaskHandler `name:"wikiIngest"`
-	TemporaryDocument    interfaces.TemporaryDocumentService
-	MemoryService        interfaces.MemoryService
+	ChunkExtractor       interfaces.TaskHandler              `name:"chunkExtractor" optional:"true"`
+	DataTableSummary     interfaces.TaskHandler              `name:"dataTableSummary" optional:"true"`
+	ImageMultimodal      interfaces.TaskHandler              `name:"imageMultimodal"`
+	KnowledgePostProcess interfaces.TaskHandler              `name:"knowledgePostProcess"`
+	KnowledgeAutoTag     interfaces.TaskHandler              `name:"knowledgeAutoTag"`
+	WikiIngest           interfaces.TaskHandler              `name:"wikiIngest"`
+	TemporaryDocument    interfaces.TemporaryDocumentService `optional:"true"`
+	MemoryService        interfaces.MemoryService            `optional:"true"`
 	DeadLetterRepo       interfaces.TaskDeadLetterRepository
 	SpanTracker          service.SpanTracker
 }
@@ -172,7 +174,7 @@ func NewCoreAsynqServer(svc interfaces.SystemSettingService) *asynq.Server {
 	allocation := resolveWorkerPoolConcurrency(svc)
 	log.Printf("asynq core-pool server starting with concurrency=%d total_upstream=%d redis_op_timeout=%dms",
 		allocation.Core, allocation.UpstreamTotal(), readRedisOpTimeoutMs())
-	return newAsynqServer(allocation.Core, types.QueueWeightsForPool(types.WorkerPoolCore))
+	return newAsynqServer(allocation.Core, effectiveQueueWeights(types.WorkerPoolCore, false))
 }
 
 // NewPostProcessAsynqServer reserves capacity for the lightweight but
@@ -182,7 +184,7 @@ func NewPostProcessAsynqServer(svc interfaces.SystemSettingService) *asynq.Serve
 	allocation := resolveWorkerPoolConcurrency(svc)
 	log.Printf("asynq postprocess-pool server starting with concurrency=%d total_upstream=%d",
 		allocation.PostProcess, allocation.UpstreamTotal())
-	return newAsynqServer(allocation.PostProcess, types.QueueWeightsForPool(types.WorkerPoolPostProcess))
+	return newAsynqServer(allocation.PostProcess, effectiveQueueWeights(types.WorkerPoolPostProcess, false))
 }
 
 // NewEnrichmentAsynqServer runs high-fanout summary, multimodal, graph, and
@@ -191,7 +193,7 @@ func NewEnrichmentAsynqServer(svc interfaces.SystemSettingService) *asynq.Server
 	allocation := resolveWorkerPoolConcurrency(svc)
 	log.Printf("asynq enrichment-pool server starting with concurrency=%d total_upstream=%d",
 		allocation.Enrichment, allocation.UpstreamTotal())
-	return newAsynqServer(allocation.Enrichment, types.QueueWeightsForPool(types.WorkerPoolEnrichment))
+	return newAsynqServer(allocation.Enrichment, effectiveQueueWeights(types.WorkerPoolEnrichment, false))
 }
 
 // NewMaintenanceAsynqServer runs connector sync, cleanup, deletion, and batch
@@ -201,7 +203,7 @@ func NewMaintenanceAsynqServer(svc interfaces.SystemSettingService) *asynq.Serve
 	allocation := resolveWorkerPoolConcurrency(svc)
 	log.Printf("asynq maintenance-pool server starting with concurrency=%d total_upstream=%d",
 		allocation.Maintenance, allocation.UpstreamTotal())
-	return newAsynqServer(allocation.Maintenance, types.QueueWeightsForPool(types.WorkerPoolMaintenance))
+	return newAsynqServer(allocation.Maintenance, effectiveQueueWeights(types.WorkerPoolMaintenance, false))
 }
 
 // NewSharedAsynqServer is the elastic tier. Asynq dequeue is atomic, so it is
@@ -211,7 +213,7 @@ func NewSharedAsynqServer(svc interfaces.SystemSettingService) *asynq.Server {
 	allocation := resolveWorkerPoolConcurrency(svc)
 	log.Printf("asynq shared-pool server starting with concurrency=%d total_upstream=%d",
 		allocation.Shared, allocation.UpstreamTotal())
-	return newAsynqServer(allocation.Shared, types.QueueWeightsForSharedPool())
+	return newAsynqServer(allocation.Shared, effectiveQueueWeights(types.WorkerPoolShared, true))
 }
 
 // NewWikiAsynqServer builds the dedicated wiki pool: QueueWiki only. It runs
@@ -222,7 +224,21 @@ func NewSharedAsynqServer(svc interfaces.SystemSettingService) *asynq.Server {
 func NewWikiAsynqServer(svc interfaces.SystemSettingService) *asynq.Server {
 	concurrency := resolveWorkerPoolConcurrency(svc).Wiki
 	log.Printf("asynq wiki-pool server starting with concurrency=%d", concurrency)
-	return newAsynqServer(concurrency, types.QueueWeightsForPool(types.WorkerPoolWiki))
+	return newAsynqServer(concurrency, effectiveQueueWeights(types.WorkerPoolWiki, false))
+}
+
+func effectiveQueueWeights(pool string, shared bool) map[string]int {
+	weights := types.QueueWeightsForPool(pool)
+	if shared {
+		weights = types.QueueWeightsForSharedPool()
+	}
+	if !astara.CurrentProfile().Valid {
+		return weights
+	}
+	delete(weights, types.QueueChatAttachment)
+	delete(weights, types.QueueGraph)
+	delete(weights, types.QueueMemory)
+	return weights
 }
 
 func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
@@ -260,12 +276,18 @@ func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 	mux.Use(langfuse.AsynqMiddleware())
 
 	// Register extract handlers - router will dispatch to appropriate handler
-	mux.HandleFunc(types.TypeChunkExtract, params.ChunkExtractor.Handle)
-	mux.HandleFunc(types.TypeDataTableSummary, params.DataTableSummary.Handle)
+	if params.ChunkExtractor != nil {
+		mux.HandleFunc(types.TypeChunkExtract, params.ChunkExtractor.Handle)
+	}
+	if params.DataTableSummary != nil {
+		mux.HandleFunc(types.TypeDataTableSummary, params.DataTableSummary.Handle)
+	}
 
 	// Register document processing handler
 	mux.HandleFunc(types.TypeDocumentProcess, params.KnowledgeService.ProcessDocument)
-	mux.HandleFunc(types.TypeTemporaryDocumentProcess, params.TemporaryDocument.Process)
+	if params.TemporaryDocument != nil {
+		mux.HandleFunc(types.TypeTemporaryDocumentProcess, params.TemporaryDocument.Process)
+	}
 
 	// Register manual knowledge processing handler (cleanup + re-indexing)
 	mux.HandleFunc(types.TypeManualProcess, params.KnowledgeService.ProcessManualUpdate)
@@ -314,7 +336,9 @@ func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 	mux.HandleFunc(types.TypeWikiFinalize, params.WikiIngest.Handle)
 
 	// Register long-term memory distillation handler
-	mux.HandleFunc(types.TypeMemoryExtract, params.MemoryService.Handle)
+	if params.MemoryService != nil {
+		mux.HandleFunc(types.TypeMemoryExtract, params.MemoryService.Handle)
+	}
 
 	// Run the same mux on every pool. Shared and dedicated servers intentionally
 	// overlap, but Redis dequeue is atomic, so each task still executes once.

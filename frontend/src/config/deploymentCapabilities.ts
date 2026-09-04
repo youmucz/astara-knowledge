@@ -22,8 +22,8 @@ export interface DeploymentCapability {
 export type DeploymentCapabilityMap = Partial<Record<DeploymentCapabilityKey, DeploymentCapability>>
 
 /**
- * 能力接口失败或旧版后端没有返回某个键时保持可见，避免一次探测失败把整个菜单清空。
- * 只有后端明确返回 supported: false 时才隐藏入口。
+ * Capability discovery is fail closed. Missing/unknown keys never expose a
+ * route that the effective backend route table did not advertise.
  */
 export function isDeploymentCapabilitySupported(
   capabilities: DeploymentCapabilityMap,
@@ -42,7 +42,7 @@ export function isDeploymentCapabilitySupported(
   if (key === 'settings.sandbox.docker') {
     return capabilities[key]?.supported === true
   }
-  return capabilities[key]?.supported !== false
+  return capabilities[key]?.supported === true
 }
 
 export const SETTINGS_SECTION_CAPABILITY: Partial<Record<string, DeploymentCapabilityKey>> = {

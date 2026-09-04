@@ -1,0 +1,66 @@
+name: astara-knowledge
+
+services:
+  api:
+    image: ghcr.io/youmucz/astara-knowledge-api:0.1.0-astara.1
+    environment:
+      WEKNORA_FEATURE_PROFILE: astara-knowledge
+      ASTARA_SERVICE_AUTH_SECRET: ${ASTARA_SERVICE_AUTH_SECRET:?required}
+      DB_DRIVER: postgres
+      DB_HOST: db
+      REDIS_ADDR: redis:6379
+      DOCREADER_ADDR: docreader:50051
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      docreader: {condition: service_healthy}
+    volumes:
+      - files:/data/files
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:8080/health/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  web:
+    image: ghcr.io/youmucz/astara-knowledge-web:0.1.0-astara.1
+    depends_on:
+      api: {condition: service_healthy}
+
+  docreader:
+    image: ghcr.io/youmucz/astara-knowledge-docreader:0.1.0-astara.1
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import socket; s=socket.create_connection((\"127.0.0.1\",50051),2); s.close()'"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  db:
+    image: paradedb/paradedb:0.18.5-pg17
+    environment:
+      POSTGRES_DB: astara_knowledge
+      POSTGRES_USER: astara_knowledge
+      POSTGRES_PASSWORD: ${KNOWLEDGE_DB_PASSWORD:?required}
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U astara_knowledge -d astara_knowledge"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4.2-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  db:
+  redis:
+  files:

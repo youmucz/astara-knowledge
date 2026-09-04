@@ -12,7 +12,9 @@ import (
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.uber.org/dig"
+	"gorm.io/gorm"
 
+	"github.com/Tencent/WeKnora/internal/astara"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/handler"
 	"github.com/Tencent/WeKnora/internal/handler/session"
@@ -29,17 +31,18 @@ type RouterParams struct {
 	dig.In
 
 	Config                       *config.Config
+	Database                     *gorm.DB
 	FileService                  interfaces.FileService
 	UserService                  interfaces.UserService
 	KBService                    interfaces.KnowledgeBaseService
 	KnowledgeService             interfaces.KnowledgeService
 	ChunkService                 interfaces.ChunkService
-	SessionService               interfaces.SessionService
-	MessageService               interfaces.MessageService
+	SessionService               interfaces.SessionService `optional:"true"`
+	MessageService               interfaces.MessageService `optional:"true"`
 	ModelService                 interfaces.ModelService
-	EvaluationService            interfaces.EvaluationService
+	EvaluationService            interfaces.EvaluationService `optional:"true"`
 	KBShareService               interfaces.KBShareService
-	AgentShareService            interfaces.AgentShareService
+	AgentShareService            interfaces.AgentShareService `optional:"true"`
 	KBHandler                    *handler.KnowledgeBaseHandler
 	KnowledgeHandler             *handler.KnowledgeHandler
 	TenantHandler                *handler.TenantHandler
@@ -51,47 +54,49 @@ type RouterParams struct {
 	AuditLogHandler              *handler.AuditLogHandler
 	AuditLogService              interfaces.AuditLogService
 	ChunkHandler                 *handler.ChunkHandler
-	SessionHandler               *session.Handler
-	MessageHandler               *handler.MessageHandler
-	MessageSuggestionHandler     *handler.MessageSuggestionHandler
+	SessionHandler               *session.Handler                  `optional:"true"`
+	MessageHandler               *handler.MessageHandler           `optional:"true"`
+	MessageSuggestionHandler     *handler.MessageSuggestionHandler `optional:"true"`
 	ModelHandler                 *handler.ModelHandler
 	ModelCredentialsHandler      *handler.ModelCredentialsHandler
-	SandboxConfigHandler         *handler.SandboxConfigHandler
-	SandboxSkillHandler          *handler.SandboxSkillHandler
-	MeEnvVarHandler              *handler.MeEnvVarHandler
-	EvaluationHandler            *handler.EvaluationHandler
+	SandboxConfigHandler         *handler.SandboxConfigHandler `optional:"true"`
+	SandboxSkillHandler          *handler.SandboxSkillHandler  `optional:"true"`
+	MeEnvVarHandler              *handler.MeEnvVarHandler      `optional:"true"`
+	EvaluationHandler            *handler.EvaluationHandler    `optional:"true"`
 	AuthHandler                  *handler.AuthHandler
 	InitializationHandler        *handler.InitializationHandler
-	SystemHandler                *handler.SystemHandler
-	MCPServiceHandler            *handler.MCPServiceHandler
-	MCPCredentialsHandler        *handler.MCPCredentialsHandler
-	MCPOAuthHandler              *handler.MCPOAuthHandler
-	WebSearchHandler             *handler.WebSearchHandler
-	WebSearchProviderHandler     *handler.WebSearchProviderHandler
-	WebSearchCredentialsHandler  *handler.WebSearchProviderCredentialsHandler
+	SystemHandler                *handler.SystemHandler                       `optional:"true"`
+	MCPServiceHandler            *handler.MCPServiceHandler                   `optional:"true"`
+	MCPCredentialsHandler        *handler.MCPCredentialsHandler               `optional:"true"`
+	MCPOAuthHandler              *handler.MCPOAuthHandler                     `optional:"true"`
+	WebSearchHandler             *handler.WebSearchHandler                    `optional:"true"`
+	WebSearchProviderHandler     *handler.WebSearchProviderHandler            `optional:"true"`
+	WebSearchCredentialsHandler  *handler.WebSearchProviderCredentialsHandler `optional:"true"`
 	VectorStoreHandler           *handler.VectorStoreHandler
 	StorageBackendHandler        *handler.StorageBackendHandler
 	StorageBackendResolver       interfaces.StorageBackendResolver
 	ResourceCatalog              interfaces.ResourceCatalog
 	FAQHandler                   *handler.FAQHandler
 	TagHandler                   *handler.TagHandler
-	CustomAgentHandler           *handler.CustomAgentHandler
-	UserFavoriteHandler          *handler.UserResourceFavoriteHandler
-	SkillHandler                 *handler.SkillHandler
-	OrganizationHandler          *handler.OrganizationHandler
-	IMHandler                    *handler.IMHandler
-	EmbedChannelHandler          *handler.EmbedChannelHandler
-	EmbedChannelService          interfaces.EmbedChannelService
+	CustomAgentHandler           *handler.CustomAgentHandler          `optional:"true"`
+	UserFavoriteHandler          *handler.UserResourceFavoriteHandler `optional:"true"`
+	SkillHandler                 *handler.SkillHandler                `optional:"true"`
+	OrganizationHandler          *handler.OrganizationHandler         `optional:"true"`
+	IMHandler                    *handler.IMHandler                   `optional:"true"`
+	EmbedChannelHandler          *handler.EmbedChannelHandler         `optional:"true"`
+	EmbedChannelService          interfaces.EmbedChannelService       `optional:"true"`
 	RedisClient                  *redis.Client
 	DataSourceHandler            *handler.DataSourceHandler
 	DataSourceCredentialsHandler *handler.DataSourceCredentialsHandler
-	WeKnoraCloudHandler          *handler.WeKnoraCloudHandler
+	WeKnoraCloudHandler          *handler.WeKnoraCloudHandler `optional:"true"`
 	WikiPageHandler              *handler.WikiPageHandler
-	MemoryHandler                *handler.MemoryHandler
+	MemoryHandler                *handler.MemoryHandler `optional:"true"`
+	AstaraControlPlaneHandler    *handler.AstaraControlPlaneHandler
 }
 
 // NewRouter 创建新的路由
 func NewRouter(params RouterParams) *gin.Engine {
+	profile := astara.CurrentProfile()
 	r := gin.New()
 	r.ContextWithFallback = true
 
@@ -128,9 +133,11 @@ func NewRouter(params RouterParams) *gin.Engine {
 	r.Use(middleware.ErrorHandler())
 
 	// 健康检查（不需要认证）
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
-	})
+	registerAstaraHealthRoutes(r, params.Database, params.RedisClient, profile)
+	if !profile.Valid {
+		return r
+	}
+	installProfileBoundary(r, profile)
 
 	// Swagger API 文档（仅在非生产环境下启用）
 	// 通过 GIN_MODE 环境变量判断：release 模式下禁用 Swagger
@@ -158,24 +165,21 @@ func NewRouter(params RouterParams) *gin.Engine {
 	}
 
 	// IM 回调路由（在认证中间件之前注册，使用各平台自身的签名验证）
-	RegisterIMRoutes(r, params.IMHandler)
+	if profile.Enabled(astara.FeatureIM) {
+		RegisterIMRoutes(r, params.IMHandler)
+	}
 
 	// Web embed 公开路由（使用 publish token 鉴权，不走全局 Auth）
-	RegisterEmbedPublicRoutes(
-		r,
-		params.EmbedChannelHandler,
-		params.EmbedChannelService,
-		params.TenantService,
-		params.RedisClient,
-		params.FileService,
-		params.StorageBackendResolver,
-		params.ResourceCatalog,
-	)
+	// Embedded agent chat is intentionally absent from the knowledge-only profile.
 
 	// Short-lived capability URLs for IM and other clients that cannot attach
 	// WeKnora authentication headers.
-	serveResourceGrants(r, params.ResourceCatalog, params.TenantService, params.FileService, params.StorageBackendResolver)
 
+	// Plane uses a separate bearer secret and never receives a WeKnora user
+	// credential. Register this private control-plane surface before user auth.
+	if profile.Valid {
+		RegisterAstaraControlPlaneRoutes(r.Group("/api/v1"), params.AstaraControlPlaneHandler)
+	}
 	// 认证中间件
 	r.Use(middleware.Auth(params.TenantService, params.UserService, params.TenantMemberService, params.TenantAPIKeyService, params.Config))
 
@@ -229,8 +233,6 @@ func NewRouter(params RouterParams) *gin.Engine {
 		v1.Use(rbacGuards.apiKeyAuthorizer.Middleware())
 
 		RegisterAuthRoutes(v1, params.AuthHandler, rbacGuards)
-		RegisterTenantRoutes(v1, params.TenantHandler, params.TenantMemberHandler, params.TenantInvitationHandler, params.AuditLogHandler, rbacGuards)
-		RegisterMyInvitationRoutes(v1, params.TenantInvitationHandler)
 		RegisterKnowledgeBaseRoutes(v1, params.KBHandler, rbacGuards)
 		RegisterKnowledgeBaseActivityRoutes(v1, params.AuditLogHandler, rbacGuards)
 		// KB-scoped image proxy: lets tenants render images embedded in
@@ -248,47 +250,22 @@ func NewRouter(params RouterParams) *gin.Engine {
 		// caller's session but may reference resources stored in the agent's
 		// source workspace. Authorization is derived from the persisted message,
 		// never from a client-provided workspace ID.
-		serveMessageScopedFiles(
-			v1,
-			rbacGuards,
-			params.MessageService,
-			params.AgentShareService,
-			params.TenantService,
-			params.FileService,
-			params.StorageBackendResolver,
-			params.ResourceCatalog,
-		)
 		RegisterKnowledgeTagRoutes(v1, params.TagHandler, rbacGuards)
 		RegisterKnowledgeRoutes(v1, params.KnowledgeHandler, rbacGuards)
 		RegisterFAQRoutes(v1, params.FAQHandler, rbacGuards)
 		RegisterChunkRoutes(v1, params.ChunkHandler, rbacGuards)
-		RegisterSessionRoutes(v1, params.SessionHandler, params.MessageSuggestionHandler, rbacGuards)
-		RegisterChatRoutes(v1, params.SessionHandler, rbacGuards)
-		RegisterMessageRoutes(v1, params.MessageHandler, rbacGuards)
+		// Chat/session/agent execution routes are not part of the profile.
 		RegisterModelRoutes(v1, params.ModelHandler, params.ModelCredentialsHandler, rbacGuards)
-		RegisterSandboxConfigRoutes(v1, params.SandboxConfigHandler, params.SandboxSkillHandler, rbacGuards)
-		RegisterMyEnvVarRoutes(v1, params.MeEnvVarHandler)
-		RegisterEvaluationRoutes(v1, params.EvaluationHandler, rbacGuards)
 		RegisterInitializationRoutes(v1, params.InitializationHandler, rbacGuards)
-		params.SystemHandler.BindDeploymentCapabilities(deploymentCapabilitiesFromRouter(params))
-		RegisterSystemRoutes(v1, params.SystemHandler, rbacGuards)
-		RegisterSystemAdminRoutes(v1, params.SystemHandler, params.AuditLogHandler, rbacGuards)
-		RegisterMCPServiceRoutes(v1, params.MCPServiceHandler, params.MCPCredentialsHandler, params.MCPOAuthHandler, rbacGuards)
-		RegisterWebSearchRoutes(v1, params.WebSearchHandler, rbacGuards)
-		RegisterWebSearchProviderRoutes(v1, params.WebSearchProviderHandler, params.WebSearchCredentialsHandler, rbacGuards)
 		RegisterVectorStoreRoutes(v1, params.VectorStoreHandler, rbacGuards)
 		RegisterStorageBackendRoutes(v1, params.StorageBackendHandler, rbacGuards)
-		RegisterCustomAgentRoutes(v1, params.CustomAgentHandler, rbacGuards)
-		RegisterUserFavoriteRoutes(v1, params.UserFavoriteHandler, rbacGuards)
-		RegisterSkillRoutes(v1, params.SkillHandler, rbacGuards)
-		RegisterOrganizationRoutes(v1, params.OrganizationHandler, rbacGuards)
-		RegisterIMChannelRoutes(v1, params.IMHandler, rbacGuards)
-		RegisterEmbedChannelRoutes(v1, params.EmbedChannelHandler, rbacGuards)
 		RegisterDataSourceRoutes(v1, params.DataSourceHandler, params.DataSourceCredentialsHandler, rbacGuards)
-		RegisterWeKnoraCloudRoutes(v1, params.WeKnoraCloudHandler, rbacGuards)
 		RegisterWikiPageRoutes(v1, params.WikiPageHandler, rbacGuards)
-		RegisterMemoryRoutes(v1, params.MemoryHandler, rbacGuards)
 		RegisterChunkerDebugRoutes(v1, rbacGuards)
+		RegisterAstaraSystemRoutes(v1, params.SystemHandler, rbacGuards, r)
+		if params.SystemHandler != nil {
+			params.SystemHandler.BindDeploymentCapabilities(deploymentCapabilitiesFromRoutes(r))
+		}
 
 		// Fail fast if any declared API-key policy points at a route
 		// template that does not actually exist (typo / path drift). A

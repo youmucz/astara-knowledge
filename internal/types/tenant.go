@@ -86,6 +86,12 @@ func GetDefaultRetrieverEngines() []RetrieverEngineParams {
 type Tenant struct {
 	// ID
 	ID uint64 `yaml:"id"                  json:"id"                  gorm:"primaryKey"`
+	// ExternalSystem and ExternalID form the immutable provisioning identity
+	// used by an owning control plane such as Astara Plane. Both are nullable so
+	// native WeKnora tenants remain unconstrained; externally managed rows must
+	// set both fields and are protected by a database unique index.
+	ExternalSystem *string `yaml:"external_system" json:"external_system,omitempty" gorm:"type:varchar(64)"`
+	ExternalID     *string `yaml:"external_id" json:"external_id,omitempty" gorm:"type:varchar(255)"`
 	// Name
 	Name string `yaml:"name"                json:"name"`
 	// Description
