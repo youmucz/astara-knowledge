@@ -40,12 +40,16 @@ func TestAstaraControlPlaneRouteInventory(t *testing.T) {
 	}
 	sort.Strings(got)
 	want := []string{
+		"DELETE /api/v1/astara/knowledge-bases/:knowledge_base_id/documents/:document_id",
 		"DELETE /api/v1/astara/tenants/:tenant_id",
 		"DELETE /api/v1/astara/tenants/:tenant_id/knowledge-bases/:knowledge_base_id",
+		"GET /api/v1/astara/knowledge-bases/:knowledge_base_id/documents/:document_id",
+		"GET /api/v1/astara/knowledge-bases/:knowledge_base_id/documents/by-external-id",
 		"GET /api/v1/astara/knowledge-bases/by-external-id",
 		"GET /api/v1/astara/tenants/by-external-id",
 		"POST /api/v1/astara/knowledge-bases",
 		"POST /api/v1/astara/tenants",
+		"PUT /api/v1/astara/knowledge-bases/:knowledge_base_id/documents",
 	}
 	sort.Strings(want)
 	if len(got) != len(want) {

@@ -190,6 +190,18 @@ type Knowledge struct {
 	ErrorMessage string `json:"error_message"`
 	// Deletion time of the knowledge
 	DeletedAt gorm.DeletedAt `json:"deleted_at"         gorm:"index"`
+	// ExternalSystem and ExternalID form the stable cross-repository identity
+	// (Plane Page UUID) this entry was provisioned from. Scoped to the
+	// knowledge base; nil for natively created entries.
+	ExternalSystem *string `json:"external_system,omitempty" gorm:"type:varchar(64)"`
+	ExternalID     *string `json:"external_id,omitempty"     gorm:"type:varchar(255)"`
+	// SourceRevision is the monotonic Plane-side revision of the exported
+	// snapshot currently stored. Upserts fence on it: an obsolete revision is
+	// rejected instead of overwriting a newer snapshot.
+	SourceRevision int64 `json:"source_revision" gorm:"not null;default:0"`
+	// ContentHash mirrors the exporter's deterministic content hash so the
+	// sync worker can skip no-op writes before calling the provider.
+	ContentHash string `json:"content_hash" gorm:"type:varchar(64);not null;default:''"`
 	// Knowledge base name (not stored in database, populated on query)
 	KnowledgeBaseName string `json:"knowledge_base_name" gorm:"-"`
 }

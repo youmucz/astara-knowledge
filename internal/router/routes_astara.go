@@ -18,6 +18,12 @@ func RegisterAstaraControlPlaneRoutes(r *gin.RouterGroup, h *handler.AstaraContr
 	group.GET("/knowledge-bases/by-external-id", h.FindKnowledgeBase)
 	group.POST("/knowledge-bases", h.CreateKnowledgeBase)
 	group.DELETE("/tenants/:tenant_id/knowledge-bases/:knowledge_base_id", h.DeleteKnowledgeBase)
+	// Stable document identity seam (source contract v1): version-fenced
+	// upsert, lookup, and tombstone for externally synchronized documents.
+	group.PUT("/knowledge-bases/:knowledge_base_id/documents", h.UpsertDocument)
+	group.GET("/knowledge-bases/:knowledge_base_id/documents/by-external-id", h.FindDocumentByExternalID)
+	group.GET("/knowledge-bases/:knowledge_base_id/documents/:document_id", h.FindDocument)
+	group.DELETE("/knowledge-bases/:knowledge_base_id/documents/:document_id", h.DeleteDocument)
 }
 
 // RegisterAstaraIdentityRoutes wires the embedded identity exchange. The
