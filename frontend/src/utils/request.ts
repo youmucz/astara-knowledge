@@ -4,6 +4,8 @@ import { generateRandomString, MAX_FILE_SIZE_MB, MAX_SKILL_BUNDLE_SIZE_MB } from
 import i18n from '@/i18n'
 import { getApiBaseUrl } from './api-base';
 import { isSkillBundleUploadUrl } from './uploadLimit';
+import { isEmbeddedMode, notifyEmbeddedSessionExpired } from '@/embedded/mode';
+import { currentEmbeddedAbortSignal } from '@/embedded/requestScope';
 
 const t = (key: string) => i18n.global.t(key)
 
@@ -29,12 +31,24 @@ export function getCurrentLanguage(): string {
 
 instance.interceptors.request.use(
   (config) => {
+    // Embedded Mode rides on the same-origin /api/knowledge proxy prefix and
+    // authenticates via the HttpOnly session cookie — never a localStorage
+    // JWT, and never an X-Tenant-ID switch (the session is tenant-pinned).
+    if (isEmbeddedMode()) {
+      config.baseURL = getApiBaseUrl();
+      // Bind every embedded request to the shared abort controller so
+      // unmount() cancels all pending work of the detached remote.
+      const signal = currentEmbeddedAbortSignal();
+      if (signal && !config.signal) {
+        config.signal = signal;
+      }
+    }
     const existingAuth = config.headers?.Authorization ?? config.headers?.authorization;
     const isEmbedAuth = typeof existingAuth === 'string' && existingAuth.startsWith('Embed ');
     const isEmbedPath = typeof config.url === 'string' && config.url.includes('/api/v1/embed/');
 
     // 嵌入渠道使用 Embed token；勿用本地 JWT 覆盖（否则调试页会 401）
-    if (!isEmbedAuth) {
+    if (!isEmbedAuth && !isEmbeddedMode()) {
       const token = localStorage.getItem('weknora_token');
       if (token) {
         config.headers["Authorization"] = `Bearer ${token}`;
@@ -53,7 +67,7 @@ instance.interceptors.request.use(
     // 换之后只有第一批请求带 X-Tenant-ID"调成永久状态。
     // 后端 IsTenantAccessible 已经允许 header 指向 home 空间（自家），
     // 所以无脑附不会引入新风险。
-    if (!isEmbedAuth && !isEmbedPath) {
+    if (!isEmbedAuth && !isEmbedPath && !isEmbeddedMode()) {
       const selectedTenantId = localStorage.getItem('weknora_selected_tenant_id');
       if (selectedTenantId) {
         config.headers["X-Tenant-ID"] = selectedTenantId;
@@ -125,6 +139,19 @@ instance.interceptors.response.use(
     
     if (!error.response) {
       return Promise.reject({ message: t('error.networkError') });
+    }
+
+    // Embedded Mode: the credential is a short-lived HttpOnly session cookie
+    // managed by the Plane host. A 401 means it expired or was revoked —
+    // surface SESSION_EXPIRED to the host instead of redirecting to the
+    // standalone WeKnora login page or attempting a token refresh.
+    if (isEmbeddedMode() && error.response.status === 401) {
+      notifyEmbeddedSessionExpired();
+      const { status, data } = error.response;
+      const msg = typeof data === 'object'
+        ? (typeof data?.error === 'string' ? data.error : (data?.error?.message || data?.message))
+        : data;
+      return Promise.reject({ status, code: 'SESSION_EXPIRED', message: msg || t('error.pleaseRelogin') });
     }
     
     // 公开接口（auto-setup / login / register / oidc）的 401 不走 refresh 逻辑，直接返回错误

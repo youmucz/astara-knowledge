@@ -30,68 +30,70 @@ import (
 type RouterParams struct {
 	dig.In
 
-	Config                       *config.Config
-	Database                     *gorm.DB
-	FileService                  interfaces.FileService
-	UserService                  interfaces.UserService
-	KBService                    interfaces.KnowledgeBaseService
-	KnowledgeService             interfaces.KnowledgeService
-	ChunkService                 interfaces.ChunkService
-	SessionService               interfaces.SessionService `optional:"true"`
-	MessageService               interfaces.MessageService `optional:"true"`
-	ModelService                 interfaces.ModelService
-	EvaluationService            interfaces.EvaluationService `optional:"true"`
-	KBShareService               interfaces.KBShareService
-	AgentShareService            interfaces.AgentShareService `optional:"true"`
-	KBHandler                    *handler.KnowledgeBaseHandler
-	KnowledgeHandler             *handler.KnowledgeHandler
-	TenantHandler                *handler.TenantHandler
-	TenantService                interfaces.TenantService
-	TenantAPIKeyService          interfaces.TenantAPIKeyService
-	TenantMemberService          interfaces.TenantMemberService
-	TenantMemberHandler          *handler.TenantMemberHandler
-	TenantInvitationHandler      *handler.TenantInvitationHandler
-	AuditLogHandler              *handler.AuditLogHandler
-	AuditLogService              interfaces.AuditLogService
-	ChunkHandler                 *handler.ChunkHandler
-	SessionHandler               *session.Handler                  `optional:"true"`
-	MessageHandler               *handler.MessageHandler           `optional:"true"`
-	MessageSuggestionHandler     *handler.MessageSuggestionHandler `optional:"true"`
-	ModelHandler                 *handler.ModelHandler
-	ModelCredentialsHandler      *handler.ModelCredentialsHandler
-	SandboxConfigHandler         *handler.SandboxConfigHandler `optional:"true"`
-	SandboxSkillHandler          *handler.SandboxSkillHandler  `optional:"true"`
-	MeEnvVarHandler              *handler.MeEnvVarHandler      `optional:"true"`
-	EvaluationHandler            *handler.EvaluationHandler    `optional:"true"`
-	AuthHandler                  *handler.AuthHandler
-	InitializationHandler        *handler.InitializationHandler
-	SystemHandler                *handler.SystemHandler                       `optional:"true"`
-	MCPServiceHandler            *handler.MCPServiceHandler                   `optional:"true"`
-	MCPCredentialsHandler        *handler.MCPCredentialsHandler               `optional:"true"`
-	MCPOAuthHandler              *handler.MCPOAuthHandler                     `optional:"true"`
-	WebSearchHandler             *handler.WebSearchHandler                    `optional:"true"`
-	WebSearchProviderHandler     *handler.WebSearchProviderHandler            `optional:"true"`
-	WebSearchCredentialsHandler  *handler.WebSearchProviderCredentialsHandler `optional:"true"`
-	VectorStoreHandler           *handler.VectorStoreHandler
-	StorageBackendHandler        *handler.StorageBackendHandler
-	StorageBackendResolver       interfaces.StorageBackendResolver
-	ResourceCatalog              interfaces.ResourceCatalog
-	FAQHandler                   *handler.FAQHandler
-	TagHandler                   *handler.TagHandler
-	CustomAgentHandler           *handler.CustomAgentHandler          `optional:"true"`
-	UserFavoriteHandler          *handler.UserResourceFavoriteHandler `optional:"true"`
-	SkillHandler                 *handler.SkillHandler                `optional:"true"`
-	OrganizationHandler          *handler.OrganizationHandler         `optional:"true"`
-	IMHandler                    *handler.IMHandler                   `optional:"true"`
-	EmbedChannelHandler          *handler.EmbedChannelHandler         `optional:"true"`
-	EmbedChannelService          interfaces.EmbedChannelService       `optional:"true"`
-	RedisClient                  *redis.Client
-	DataSourceHandler            *handler.DataSourceHandler
-	DataSourceCredentialsHandler *handler.DataSourceCredentialsHandler
-	WeKnoraCloudHandler          *handler.WeKnoraCloudHandler `optional:"true"`
-	WikiPageHandler              *handler.WikiPageHandler
-	MemoryHandler                *handler.MemoryHandler `optional:"true"`
-	AstaraControlPlaneHandler    *handler.AstaraControlPlaneHandler
+	Config                        *config.Config
+	Database                      *gorm.DB
+	FileService                   interfaces.FileService
+	UserService                   interfaces.UserService
+	KBService                     interfaces.KnowledgeBaseService
+	KnowledgeService              interfaces.KnowledgeService
+	ChunkService                  interfaces.ChunkService
+	SessionService                interfaces.SessionService `optional:"true"`
+	MessageService                interfaces.MessageService `optional:"true"`
+	ModelService                  interfaces.ModelService
+	EvaluationService             interfaces.EvaluationService `optional:"true"`
+	KBShareService                interfaces.KBShareService
+	AgentShareService             interfaces.AgentShareService `optional:"true"`
+	KBHandler                     *handler.KnowledgeBaseHandler
+	KnowledgeHandler              *handler.KnowledgeHandler
+	TenantHandler                 *handler.TenantHandler
+	TenantService                 interfaces.TenantService
+	TenantAPIKeyService           interfaces.TenantAPIKeyService
+	TenantMemberService           interfaces.TenantMemberService
+	TenantMemberHandler           *handler.TenantMemberHandler
+	TenantInvitationHandler       *handler.TenantInvitationHandler
+	AuditLogHandler               *handler.AuditLogHandler
+	AuditLogService               interfaces.AuditLogService
+	ChunkHandler                  *handler.ChunkHandler
+	SessionHandler                *session.Handler                  `optional:"true"`
+	MessageHandler                *handler.MessageHandler           `optional:"true"`
+	MessageSuggestionHandler      *handler.MessageSuggestionHandler `optional:"true"`
+	ModelHandler                  *handler.ModelHandler
+	ModelCredentialsHandler       *handler.ModelCredentialsHandler
+	SandboxConfigHandler          *handler.SandboxConfigHandler `optional:"true"`
+	SandboxSkillHandler           *handler.SandboxSkillHandler  `optional:"true"`
+	MeEnvVarHandler               *handler.MeEnvVarHandler      `optional:"true"`
+	EvaluationHandler             *handler.EvaluationHandler    `optional:"true"`
+	AuthHandler                   *handler.AuthHandler
+	InitializationHandler         *handler.InitializationHandler
+	SystemHandler                 *handler.SystemHandler                       `optional:"true"`
+	MCPServiceHandler             *handler.MCPServiceHandler                   `optional:"true"`
+	MCPCredentialsHandler         *handler.MCPCredentialsHandler               `optional:"true"`
+	MCPOAuthHandler               *handler.MCPOAuthHandler                     `optional:"true"`
+	WebSearchHandler              *handler.WebSearchHandler                    `optional:"true"`
+	WebSearchProviderHandler      *handler.WebSearchProviderHandler            `optional:"true"`
+	WebSearchCredentialsHandler   *handler.WebSearchProviderCredentialsHandler `optional:"true"`
+	VectorStoreHandler            *handler.VectorStoreHandler
+	StorageBackendHandler         *handler.StorageBackendHandler
+	StorageBackendResolver        interfaces.StorageBackendResolver
+	ResourceCatalog               interfaces.ResourceCatalog
+	FAQHandler                    *handler.FAQHandler
+	TagHandler                    *handler.TagHandler
+	CustomAgentHandler            *handler.CustomAgentHandler          `optional:"true"`
+	UserFavoriteHandler           *handler.UserResourceFavoriteHandler `optional:"true"`
+	SkillHandler                  *handler.SkillHandler                `optional:"true"`
+	OrganizationHandler           *handler.OrganizationHandler         `optional:"true"`
+	IMHandler                     *handler.IMHandler                   `optional:"true"`
+	EmbedChannelHandler           *handler.EmbedChannelHandler         `optional:"true"`
+	EmbedChannelService           interfaces.EmbedChannelService       `optional:"true"`
+	RedisClient                   *redis.Client
+	DataSourceHandler             *handler.DataSourceHandler
+	DataSourceCredentialsHandler  *handler.DataSourceCredentialsHandler
+	WeKnoraCloudHandler           *handler.WeKnoraCloudHandler `optional:"true"`
+	WikiPageHandler               *handler.WikiPageHandler
+	MemoryHandler                 *handler.MemoryHandler `optional:"true"`
+	AstaraControlPlaneHandler     *handler.AstaraControlPlaneHandler
+	AstaraIdentityExchangeHandler *handler.AstaraIdentityExchangeHandler `optional:"true"`
+	EmbeddedSessionService        interfaces.EmbeddedSessionService      `optional:"true"`
 }
 
 // NewRouter 创建新的路由
@@ -179,9 +181,10 @@ func NewRouter(params RouterParams) *gin.Engine {
 	// credential. Register this private control-plane surface before user auth.
 	if profile.Valid {
 		RegisterAstaraControlPlaneRoutes(r.Group("/api/v1"), params.AstaraControlPlaneHandler)
+		RegisterAstaraIdentityRoutes(r.Group("/api/v1"), params.AstaraIdentityExchangeHandler)
 	}
 	// 认证中间件
-	r.Use(middleware.Auth(params.TenantService, params.UserService, params.TenantMemberService, params.TenantAPIKeyService, params.Config))
+	r.Use(middleware.Auth(params.TenantService, params.UserService, params.TenantMemberService, params.TenantAPIKeyService, params.Config, params.EmbeddedSessionService))
 
 	// 文件服务：统一代理本地/MinIO/COS/TOS存储后端（需要认证）
 	serveFilesWithResources(r, params.FileService, params.StorageBackendResolver, params.ResourceCatalog)

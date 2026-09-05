@@ -57,3 +57,31 @@ func TestAstaraControlPlaneRouteInventory(t *testing.T) {
 		}
 	}
 }
+
+// TestAstaraIdentityRouteInventory pins the embedded identity exchange
+// surface: exchange is assertion-authenticated, revoke is
+// service-authenticated, and nothing else lives under /identity.
+func TestAstaraIdentityRouteInventory(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	t.Setenv("ASTARA_SERVICE_AUTH_SECRET", "test-service-secret")
+	RegisterAstaraIdentityRoutes(r.Group("/api/v1"), &handler.AstaraIdentityExchangeHandler{})
+	got := make([]string, 0)
+	for _, route := range r.Routes() {
+		got = append(got, route.Method+" "+route.Path)
+	}
+	sort.Strings(got)
+	want := []string{
+		"POST /api/v1/astara/identity/exchange",
+		"POST /api/v1/astara/identity/revoke",
+	}
+	sort.Strings(want)
+	if len(got) != len(want) {
+		t.Fatalf("routes=%v, want=%v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("routes=%v, want=%v", got, want)
+		}
+	}
+}

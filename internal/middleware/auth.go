@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -129,6 +130,7 @@ func Auth(
 	memberService interfaces.TenantMemberService,
 	apiKeyService interfaces.TenantAPIKeyService,
 	cfg *config.Config,
+	embeddedSessions interfaces.EmbeddedSessionService,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// ignore OPTIONS request
@@ -141,6 +143,19 @@ func Auth(
 		if isNoAuthAPI(c.Request.URL.Path, c.Request.Method) {
 			c.Next()
 			return
+		}
+
+		// Embedded session cookie channel (Plane-hosted surface): the
+		// credential is a short-lived HttpOnly cookie bound to one tenant
+		// and one permission revision. It never coexists with a WeKnora
+		// bearer token, so try it before the JWT/API-key channels.
+		if embeddedSessions != nil {
+			if cookie, cookieErr := c.Cookie(embeddedSessionCookieName()); cookieErr == nil && cookie != "" {
+				if authenticateEmbeddedSession(c, embeddedSessions, tenantService, memberService) {
+					c.Next()
+				}
+				return
+			}
 		}
 
 		// 尝试JWT Token认证
@@ -824,4 +839,86 @@ func resolveTenantRole(
 		user.ID, targetTenantID)
 	// fail-open 期间保持现有行为（每个登录用户在自己空间里都是"管理员"）。
 	return types.TenantRoleAdmin, true
+}
+
+// embeddedSessionCookieName mirrors ASTARA_EMBEDDED_SESSION_COOKIE in the
+// identity exchange handler; both sides default to the same cookie.
+const embeddedSessionCookieEnv = "ASTARA_EMBEDDED_SESSION_COOKIE"
+
+func embeddedSessionCookieName() string {
+	if value := strings.TrimSpace(os.Getenv(embeddedSessionCookieEnv)); value != "" {
+		return value
+	}
+	return "weknora_embedded_session"
+}
+
+// authenticateEmbeddedSession validates the embedded-session cookie and
+// attaches the tenant-pinned session. Every failure is fail-closed with the
+// SESSION_EXPIRED code so the embedded frontend surfaces a re-bootstrap
+// instead of a login redirect.
+func authenticateEmbeddedSession(
+	c *gin.Context,
+	sessions interfaces.EmbeddedSessionService,
+	tenantService interfaces.TenantService,
+	memberService interfaces.TenantMemberService,
+) bool {
+	ctx := c.Request.Context()
+	cookie, _ := c.Cookie(embeddedSessionCookieName())
+	info, err := sessions.Validate(ctx, cookie)
+	if err != nil || info == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "Unauthorized: embedded session is invalid or expired",
+			"code":  "SESSION_EXPIRED",
+		})
+		c.Abort()
+		return false
+	}
+
+	// Tenant pinning: an embedded session can never switch workspaces.
+	if strings.TrimSpace(c.GetHeader("X-Tenant-ID")) != "" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden: embedded sessions cannot switch workspaces"})
+		c.Abort()
+		return false
+	}
+
+	tenant, err := tenantService.GetTenantByID(ctx, info.TenantID)
+	if err != nil || tenant == nil || tenant.Status != "active" {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "Unauthorized: embedded session workspace is unavailable",
+			"code":  "SESSION_EXPIRED",
+		})
+		c.Abort()
+		return false
+	}
+
+	member, err := memberService.GetMembership(ctx, info.User.ID, info.TenantID)
+	if err != nil || member == nil || member.Status != types.TenantMemberStatusActive {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "Unauthorized: embedded session membership is no longer active",
+			"code":  "SESSION_EXPIRED",
+		})
+		c.Abort()
+		return false
+	}
+	if member.PermissionRevision != info.PermissionRevision {
+		// Plane-side permissions moved on; the session must be re-bootstrapped.
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "Unauthorized: embedded session permission revision is stale",
+			"code":  "SESSION_EXPIRED",
+		})
+		c.Abort()
+		return false
+	}
+
+	logger.Infof(ctx, "[auth] embedded session user=%s tenant=%d role=%s rev=%s",
+		info.User.ID, info.TenantID, member.Role, info.PermissionRevision)
+	applyAuthSession(c, authSession{
+		User:      info.User,
+		Principal: types.Principal{Type: types.PrincipalWebUser, ID: info.User.ID},
+		TenantID:  info.TenantID,
+		Tenant:    tenant,
+		Role:      member.Role,
+		Extra:     map[types.ContextKey]any{types.EmbeddedSessionContextKey: true},
+	})
+	return true
 }

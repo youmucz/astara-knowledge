@@ -83,6 +83,11 @@ func (p *UserPreferences) Scan(value interface{}) error {
 type User struct {
 	// Unique identifier of the user
 	ID string `json:"id"         gorm:"type:varchar(36);primaryKey"`
+	// ExternalSystem and ExternalID form the immutable identity of the
+	// Plane user this shadow user was provisioned for (embedded identity
+	// exchange). Nullable so natively registered users remain unconstrained.
+	ExternalSystem *string `json:"external_system,omitempty" gorm:"type:varchar(64)"`
+	ExternalID     *string `json:"external_id,omitempty"     gorm:"type:varchar(255)"`
 	// Username of the user
 	Username string `json:"username"   gorm:"type:varchar(100);uniqueIndex;not null"`
 	// Email address of the user

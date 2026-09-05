@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, reactive, computed, nextTick } from "vue";
+import { isEmbeddedMode } from "@/embedded/mode";
 import { MessagePlugin } from "tdesign-vue-next";
 import DocContent from "@/components/doc-content.vue";
 import useKnowledgeBase from '@/hooks/useKnowledgeBase';
@@ -23,6 +24,9 @@ const authStore = useAuthStore();
 const chatResources = useChatResourcesStore();
 const editorResources = useEditorResourcesStore();
 const router = useRouter();
+// Embedded Mode (Plane-hosted)：GraphRAG 被 knowledge-only profile 禁用，
+// 图谱入口在嵌入式界面中默认隐藏（default-deny，路由层同样拒绝）。
+const isEmbedded = isEmbeddedMode();
 import {
   batchQueryKnowledge,
   listKnowledgeTags,
@@ -87,7 +91,10 @@ const isFAQ = computed(() => (kbInfo.value?.type || '') === 'faq');
 const isWiki = computed(() => !!kbInfo.value?.indexing_strategy?.wiki_enabled);
 const validTabs = ['documents', 'wiki', 'graph'] as const
 type KbTab = typeof validTabs[number]
-const initTab = validTabs.includes(route.query.tab as any) ? (route.query.tab as KbTab) : 'documents'
+// Embedded Mode never restores the graph tab even via deep link.
+const embeddedTabAllowed = (tab: unknown): tab is KbTab =>
+  validTabs.includes(tab as KbTab) && !(isEmbedded && tab === 'graph')
+const initTab = embeddedTabAllowed(route.query.tab) ? (route.query.tab as KbTab) : 'documents'
 const activeKbTab = ref<KbTab>(initTab);
 
 // Wiki 状态用于面包屑上的索引中指示。父组件自行拉取，避免依赖 WikiBrowser 挂载状态
@@ -2332,16 +2339,18 @@ async function createNewSession(value: string): Promise<void> {
                     <t-loading size="small" class="breadcrumb-tab-indicator" />
                   </t-tooltip>
                 </span>
-                <span class="breadcrumb-tab-sep">/</span>
-                <t-tooltip :content="$t('knowledgeEditor.wikiBrowser.tabGraphTip')" placement="bottom">
-                  <span :class="['breadcrumb-tab', { active: activeKbTab === 'graph', indexing: wikiIsIndexing }]"
-                    @click="activeKbTab = 'graph'">
-                    {{ $t('knowledgeEditor.wikiBrowser.tabGraph') }}
-                    <t-tooltip v-if="wikiIsIndexing" :content="wikiIndexingTip" placement="bottom">
-                      <t-loading size="small" class="breadcrumb-tab-indicator" />
-                    </t-tooltip>
-                  </span>
-                </t-tooltip>
+                <template v-if="!isEmbedded">
+                  <span class="breadcrumb-tab-sep">/</span>
+                  <t-tooltip :content="$t('knowledgeEditor.wikiBrowser.tabGraphTip')" placement="bottom">
+                    <span :class="['breadcrumb-tab', { active: activeKbTab === 'graph', indexing: wikiIsIndexing }]"
+                      @click="activeKbTab = 'graph'">
+                      {{ $t('knowledgeEditor.wikiBrowser.tabGraph') }}
+                      <t-tooltip v-if="wikiIsIndexing" :content="wikiIndexingTip" placement="bottom">
+                        <t-loading size="small" class="breadcrumb-tab-indicator" />
+                      </t-tooltip>
+                    </span>
+                  </t-tooltip>
+                </template>
               </template>
               <span v-else class="breadcrumb-current">{{ $t('knowledgeEditor.document.title') }}</span>
             </h2>

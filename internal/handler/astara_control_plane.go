@@ -1,12 +1,10 @@
 package handler
 
 import (
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -18,28 +16,16 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 )
 
-const astaraServiceAuthEnv = "ASTARA_SERVICE_AUTH_SECRET"
-
 type AstaraControlPlaneHandler struct{ db *gorm.DB }
 
 func NewAstaraControlPlaneHandler(db *gorm.DB) *AstaraControlPlaneHandler {
 	return &AstaraControlPlaneHandler{db: db}
 }
 
+// Authenticate guards the private control plane with the shared service
+// secret (constant-time compare, fail-closed when unconfigured).
 func (h *AstaraControlPlaneHandler) Authenticate(c *gin.Context) {
-	secret := strings.TrimSpace(os.Getenv(astaraServiceAuthEnv))
-	header := strings.TrimSpace(c.GetHeader("Authorization"))
-	provided := strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
-	if secret == "" {
-		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "service authentication is not configured"})
-		return
-	}
-	if !strings.HasPrefix(header, "Bearer ") || len(provided) != len(secret) ||
-		subtle.ConstantTimeCompare([]byte(provided), []byte(secret)) != 1 {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid service authentication"})
-		return
-	}
-	c.Next()
+	astaraServiceAuth()(c)
 }
 
 type astaraTenantRequest struct {

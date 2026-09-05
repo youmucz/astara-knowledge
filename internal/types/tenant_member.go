@@ -96,6 +96,11 @@ type TenantMember struct {
 	// Status controls whether this membership is honoured by the auth
 	// middleware; see TenantMemberStatus constants.
 	Status TenantMemberStatus `json:"status" gorm:"type:varchar(20);not null;default:'active'"`
+	// PermissionRevision is the Plane-side membership snapshot revision the
+	// last embedded-session exchange was minted against. An embedded
+	// session carrying a different revision is rejected (stale permissions)
+	// until the host re-bootstraps. Empty for native membership flows.
+	PermissionRevision string `json:"permission_revision,omitempty" gorm:"type:varchar(64);not null;default:''"`
 	// InvitedBy records the user ID of the admin who created this row via
 	// an invitation flow. Nil for rows created by self-service registration.
 	InvitedBy *string `json:"invited_by,omitempty" gorm:"type:varchar(36)"`

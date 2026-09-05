@@ -13,7 +13,9 @@
     "test": "tsx --test",
     "check-i18n": "tsx --test src/i18n/localeKeyAudit.test.ts",
     "scan-i18n-gaps": "tsx src/i18n/localeGapScan.ts",
-    "regenerate-i18n-locales": "tsx src/i18n/regeneratePrunedLocales.ts"
+    "regenerate-i18n-locales": "tsx src/i18n/regeneratePrunedLocales.ts",
+    "build:embedded": "vite build --config vite.config.embedded.ts",
+    "test:embedded": "tsx --test src/embedded/*.test.ts"
   },
   "dependencies": {
     "@microsoft/fetch-event-source": "^2.0.1",
@@ -51,6 +53,7 @@
     "less": "^4.6.4",
     "less-loader": "^12.3.2",
     "npm-run-all2": "^8.0.4",
+    "postcss": "8.5.28",
     "tsx": "^4.23.1",
     "typescript": "~6.0.3",
     "vite": "^7.3.5",

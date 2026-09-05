@@ -6,6 +6,10 @@ services:
     environment:
       WEKNORA_FEATURE_PROFILE: astara-knowledge
       ASTARA_SERVICE_AUTH_SECRET: ${ASTARA_SERVICE_AUTH_SECRET:?required}
+      # Plane signs one-time bootstrap assertions with the current secret;
+      # _PREVIOUS stays valid during key rotation.
+      ASTARA_IDENTITY_EXCHANGE_SECRET: ${ASTARA_IDENTITY_EXCHANGE_SECRET:?required}
+      ASTARA_IDENTITY_EXCHANGE_SECRET_PREVIOUS: ${ASTARA_IDENTITY_EXCHANGE_SECRET_PREVIOUS:-}
       DB_DRIVER: postgres
       DB_HOST: db
       REDIS_ADDR: redis:6379

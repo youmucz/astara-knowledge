@@ -490,12 +490,21 @@ import KBShareSettings from './settings/KBShareSettings.vue'
 import DataSourceSettings from './settings/DataSourceSettings.vue'
 import KnowledgeBaseActivitySettings from './settings/KnowledgeBaseActivitySettings.vue'
 import { useI18n } from 'vue-i18n'
+import { isEmbeddedMode } from '@/embedded/mode'
 
 const uiStore = useUIStore()
 const authStore = useAuthStore()
 const chatResources = useChatResourcesStore()
 const editorResources = useEditorResourcesStore()
 const { t } = useI18n()
+
+/**
+ * Embedded Mode (Plane-hosted): the platform Settings modal is never
+ * mounted, so "add model" affordances that open it must stay inert, and
+ * knowledge-only-forbidden sections (GraphRAG, native cross-tenant share)
+ * are removed from the navigation instead of dead-linked.
+ */
+const isEmbedded = isEmbeddedMode()
 
 // Props
 const props = defineProps<{
@@ -618,14 +627,19 @@ const navItems = computed(() => {
       { key: 'asr', icon: 'sound', label: t('knowledgeEditor.sidebar.asr') },
       { key: 'storage', icon: 'cloud', label: t('knowledgeEditor.sidebar.storage') },
       { key: 'chunking', icon: 'file-copy', label: t('knowledgeEditor.sidebar.chunking') },
-      { key: 'graph', icon: 'chart-bubble', label: t('knowledgeEditor.sidebar.graph') },
       { key: 'advanced', icon: 'setting', label: t('knowledgeEditor.sidebar.advanced') }
     )
+    if (!isEmbedded) {
+      // GraphRAG is prohibited by the knowledge-only profile and native
+      // cross-tenant sharing is not a Plane concept — both stay hidden in
+      // the embedded surface (default-deny).
+      items.push({ key: 'graph', icon: 'chart-bubble', label: t('knowledgeEditor.sidebar.graph') })
+    }
     if (editorMode.value === 'edit' && activeKbId.value) {
       items.push({ key: 'datasource', icon: 'cloud-download', label: t('knowledgeEditor.sidebar.datasource'), badge: dsCount.value || undefined })
     }
   }
-  if (editorMode.value === 'edit' && activeKbId.value && !authStore.isLiteMode) {
+  if (editorMode.value === 'edit' && activeKbId.value && !authStore.isLiteMode && !isEmbedded) {
     items.push({ key: 'share', icon: 'share', label: t('knowledgeEditor.sidebar.share') })
   }
   if (canViewActivity.value) {
@@ -1071,14 +1085,18 @@ const handleMultimodalVLLMChange = (modelId: string) => {
 }
 
 const handleAddVLLMModel = () => {
+  // Embedded Mode never mounts the platform Settings modal.
+  if (isEmbedded) return
   uiStore.openSettings('models', 'vllm')
 }
 
 const handleAddASRModel = () => {
+  if (isEmbedded) return
   uiStore.openSettings('models', 'asr')
 }
 
 const handleAddWikiModel = () => {
+  if (isEmbedded) return
   uiStore.openSettings('models', 'knowledgeqa')
 }
 

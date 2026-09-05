@@ -11,6 +11,18 @@ import { BUILTIN_QUICK_ANSWER_ID } from '@/api/agent'
 import { useChatResourcesStore } from '@/stores/chatResources'
 import { useEditorResourcesStore } from '@/stores/editorResources'
 import { useOrganizationStore } from '@/stores/organization'
+import { isEmbeddedMode, EMBEDDED_SESSION_SENTINEL } from '@/embedded/mode'
+
+/**
+ * Embedded Mode keeps every WeKnora auth artifact out of browser storage:
+ * the credential is a short-lived HttpOnly session cookie owned by the
+ * Plane host, and the in-memory store is hydrated from /auth/me on mount.
+ */
+const persistStorage = (key: string, value: string): void => {
+  if (!isEmbeddedMode()) {
+    localStorage.setItem(key, value)
+  }
+}
 
 /** 登出时丢弃 Pinia 内的空间级资源缓存，避免 SPA 重登复用上一账号数据。 */
 function clearSessionResourceCaches() {
@@ -190,7 +202,7 @@ export const useAuthStore = defineStore('auth', () => {
     const previousId = user.value?.id
     user.value = userData
     // 保存到localStorage
-    localStorage.setItem('weknora_user', JSON.stringify(userData))
+    persistStorage('weknora_user', JSON.stringify(userData))
     if (previousId !== userData.id) {
       reloadUserPreferences()
     }
@@ -199,7 +211,7 @@ export const useAuthStore = defineStore('auth', () => {
   const setTenant = (tenantData: TenantInfo | null) => {
     tenant.value = tenantData
     if (tenantData) {
-      localStorage.setItem('weknora_tenant', JSON.stringify(tenantData))
+      persistStorage('weknora_tenant', JSON.stringify(tenantData))
     } else {
       localStorage.removeItem('weknora_tenant')
       setSelectedTenant(null, null)
@@ -208,24 +220,24 @@ export const useAuthStore = defineStore('auth', () => {
 
   const setToken = (tokenValue: string) => {
     token.value = tokenValue
-    localStorage.setItem('weknora_token', tokenValue)
+    persistStorage('weknora_token', tokenValue)
   }
 
   const setRefreshToken = (refreshTokenValue: string) => {
     refreshToken.value = refreshTokenValue
-    localStorage.setItem('weknora_refresh_token', refreshTokenValue)
+    persistStorage('weknora_refresh_token', refreshTokenValue)
   }
 
   const setKnowledgeBases = (kbList: KnowledgeBaseInfo[]) => {
     // 确保输入是数组
     knowledgeBases.value = Array.isArray(kbList) ? kbList : []
-    localStorage.setItem('weknora_knowledge_bases', JSON.stringify(knowledgeBases.value))
+    persistStorage('weknora_knowledge_bases', JSON.stringify(knowledgeBases.value))
   }
 
   const setCurrentKnowledgeBase = (kb: KnowledgeBaseInfo | null) => {
     currentKnowledgeBase.value = kb
     if (kb) {
-      localStorage.setItem('weknora_current_kb', JSON.stringify(kb))
+      persistStorage('weknora_current_kb', JSON.stringify(kb))
     } else {
       localStorage.removeItem('weknora_current_kb')
     }
@@ -272,9 +284,9 @@ export const useAuthStore = defineStore('auth', () => {
     selectedTenantId.value = tenantId
     selectedTenantName.value = tenantName
     if (tenantId !== null) {
-      localStorage.setItem('weknora_selected_tenant_id', String(tenantId))
+      persistStorage('weknora_selected_tenant_id', String(tenantId))
       if (tenantName) {
-        localStorage.setItem('weknora_selected_tenant_name', tenantName)
+        persistStorage('weknora_selected_tenant_name', tenantName)
       }
     } else {
       localStorage.removeItem('weknora_selected_tenant_id')
@@ -293,7 +305,7 @@ export const useAuthStore = defineStore('auth', () => {
     list: Array<{ tenant_id: number; tenant_name?: string; role: string }>
   ) => {
     memberships.value = Array.isArray(list) ? list : []
-    localStorage.setItem('weknora_memberships', JSON.stringify(memberships.value))
+    persistStorage('weknora_memberships', JSON.stringify(memberships.value))
   }
 
   // setPendingInvitationCount is the explicit setter used by the
@@ -411,7 +423,7 @@ export const useAuthStore = defineStore('auth', () => {
   const setLiteMode = (value: boolean) => {
     isLiteMode.value = value
     if (value) {
-      localStorage.setItem('weknora_lite_mode', 'true')
+      persistStorage('weknora_lite_mode', 'true')
     } else {
       localStorage.removeItem('weknora_lite_mode')
     }
@@ -538,8 +550,27 @@ export const useAuthStore = defineStore('auth', () => {
     isLiteMode.value = localStorage.getItem('weknora_lite_mode') === 'true'
   }
 
-  // 初始化时从localStorage恢复状态
-  initFromStorage()
+  // Embedded Mode：把 /auth/me 返回的会话投影写入内存 store。凭据本体是
+  // HttpOnly cookie，token 只存哨兵值让 isLoggedIn 成立；哨兵永远不会
+  // 出现在请求头里（见 utils/request.ts 的 Embedded Mode 分支）。
+  const setEmbeddedSession = (payload: {
+    user: UserInfo
+    tenant: TenantInfo | null
+    memberships?: Array<{ tenant_id: number; tenant_name?: string; role: string }>
+  }) => {
+    setUser(payload.user)
+    setTenant(payload.tenant)
+    if (Array.isArray(payload.memberships)) {
+      setMemberships(payload.memberships)
+    }
+    token.value = EMBEDDED_SESSION_SENTINEL
+  }
+
+  // 初始化时从localStorage恢复状态（Embedded Mode 例外：凭据在
+  // HttpOnly cookie 里，store 由 setEmbeddedSession 从 /auth/me 水合）
+  if (!isEmbeddedMode()) {
+    initFromStorage()
+  }
 
   return {
     // 状态
@@ -580,6 +611,7 @@ export const useAuthStore = defineStore('auth', () => {
     setSelectedTenant,
     setAllTenants,
     setMemberships,
+    setEmbeddedSession,
     setPendingInvitationCount,
     setCanCreateTenant,
     setAutoAcceptInvitation,

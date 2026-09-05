@@ -20,6 +20,29 @@ func RegisterAstaraControlPlaneRoutes(r *gin.RouterGroup, h *handler.AstaraContr
 	group.DELETE("/tenants/:tenant_id/knowledge-bases/:knowledge_base_id", h.DeleteKnowledgeBase)
 }
 
+// RegisterAstaraIdentityRoutes wires the embedded identity exchange. The
+// exchange endpoint authenticates with the one-time assertion itself (it
+// is the credential being redeemed), so it must be registered before the
+// global user-auth middleware. Revocation stays service-authenticated like
+// the rest of the control plane.
+func RegisterAstaraIdentityRoutes(r *gin.RouterGroup, h *handler.AstaraIdentityExchangeHandler) {
+	if h == nil {
+		return
+	}
+	group := r.Group("/astara")
+	group.POST("/identity/exchange", h.Exchange)
+	group.POST("/identity/revoke", astaraRouteServiceAuth(), h.Revoke)
+}
+
+// astaraRouteServiceAuth applies the shared control-plane service
+// authentication without the router package depending on a concrete
+// control-plane handler instance.
+func astaraRouteServiceAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		handler.AstaraServiceAuth(c)
+	}
+}
+
 // RegisterAstaraSystemRoutes omits the sandbox probe and global execution
 // administration endpoints from the knowledge-only effective route table.
 func RegisterAstaraSystemRoutes(r *gin.RouterGroup, h *handler.SystemHandler, g *rbacGuards, engine *gin.Engine) {

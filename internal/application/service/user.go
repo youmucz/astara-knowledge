@@ -1229,6 +1229,13 @@ func (s *userService) ValidateToken(ctx context.Context, tokenString string) (*t
 	if isRefreshTokenClaims(claims) {
 		return nil, 0, errors.New("refresh token cannot be used as access token")
 	}
+	// Embedded session tokens are HttpOnly-cookie credentials of the
+	// Plane-hosted surface: they must never be replayed as a login bearer
+	// token (the cookie channel re-validates the membership/revision
+	// binding that a bearer path would skip).
+	if isEmbeddedSessionClaims(claims) {
+		return nil, 0, errors.New("embedded session token cannot be used as access token")
+	}
 
 	// Check if token is revoked
 	tokenRecord, err := s.tokenRepo.GetTokenByValue(ctx, tokenString)
@@ -1255,6 +1262,11 @@ func (s *userService) ValidateToken(ctx context.Context, tokenString string) (*t
 func isRefreshTokenClaims(claims jwt.MapClaims) bool {
 	tokenType, ok := claims["type"].(string)
 	return ok && tokenType == "refresh"
+}
+
+func isEmbeddedSessionClaims(claims jwt.MapClaims) bool {
+	tokenType, ok := claims["type"].(string)
+	return ok && tokenType == EmbeddedSessionClaimType
 }
 
 func userIDFromSignedToken(tokenString string) (string, error) {

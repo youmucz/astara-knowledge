@@ -493,6 +493,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	// Wiki page handler
 	must(container.Provide(handler.NewWikiPageHandler))
 	must(container.Provide(handler.NewAstaraControlPlaneHandler))
+	must(container.Provide(service.NewEmbeddedSessionService))
+	must(container.Provide(handler.NewAstaraIdentityExchangeHandler))
 	// IM integration
 	logger.Debugf(ctx, "[Container] Registering IM integration...")
 	if !knowledgeOnly {
@@ -553,7 +555,9 @@ func (*disabledGraphRepository) SearchNode(context.Context, types.NameSpace, []s
 
 type disabledCustomAgentRepository struct{}
 
-func newDisabledCustomAgentRepository() *disabledCustomAgentRepository { return &disabledCustomAgentRepository{} }
+func newDisabledCustomAgentRepository() *disabledCustomAgentRepository {
+	return &disabledCustomAgentRepository{}
+}
 
 var errAgentsDisabled = errors.New("agents are disabled by the active feature profile")
 

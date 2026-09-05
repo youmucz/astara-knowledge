@@ -18,6 +18,9 @@ const (
 	UserIDContextKey ContextKey = "UserID"
 	// PrincipalContextKey is the context key for the terminal caller principal.
 	PrincipalContextKey ContextKey = "Principal"
+	// EmbeddedSessionContextKey marks requests authenticated through the
+	// Plane-hosted embedded session cookie (tenant-pinned, revision-bound).
+	EmbeddedSessionContextKey ContextKey = "EmbeddedSession"
 	// TenantAPIKeyScopeContextKey carries per-API-key operation and KB scopes.
 	TenantAPIKeyScopeContextKey ContextKey = "TenantAPIKeyScope"
 	// TenantRoleContextKey is the context key for the caller's TenantRole
