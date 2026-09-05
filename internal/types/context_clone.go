@@ -56,6 +56,13 @@ var contextCloneAcrossDetach = map[ContextKey]bool{
 	EmbedQueryContextKey:   true,
 	EmbedVisitorContextKey: true,
 
+	// EmbeddedSessionContextKey only marks that the request authenticated
+	// through the Plane-hosted embedded session cookie; the authoritative
+	// session state (user, tenant, role, revision) is re-derived from the
+	// cookie by the auth middleware on every request. Background work never
+	// branches on the marker, so it deliberately does not survive a detach.
+	EmbeddedSessionContextKey: false,
+
 	// Diagnostics and presentation that background work is expected to keep.
 	// The Langfuse trace in particular must stay alive so the LLM / embedder /
 	// reranker / VLM / ASR wrappers attach their generations to the trace
