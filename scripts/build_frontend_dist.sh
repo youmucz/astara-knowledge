@@ -16,3 +16,4 @@ export VITE_IS_DOCKER="${VITE_IS_DOCKER:-true}"
 cd "$PROJECT_ROOT/frontend"
 npm ci
 npm run build
+npm run build:embedded

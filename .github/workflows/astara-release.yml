@@ -56,7 +56,9 @@ jobs:
       - name: Build frontend assets
         if: matrix.image == 'web'
         working-directory: frontend
-        run: npm ci && npm run build
+        # The SPA (dist) and the embedded microfrontend artifact
+        # (dist-embedded) ship together in the web image.
+        run: npm ci && npm run build && npm run build:embedded
       - id: build
         uses: docker/build-push-action@v7
         with:

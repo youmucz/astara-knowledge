@@ -10,6 +10,10 @@ FROM nginx:1.30.3-alpine@sha256:0d3b80406a13a767339fbe2f41406d6c7da727ab89cf8fae
 
 COPY dist /usr/share/nginx/html
 
+# Embedded (Plane-hosted) microfrontend artifact: served under the reserved
+# /knowledge-assets/ path consumed by the Plane workspace host.
+COPY dist-embedded /usr/share/nginx/html/knowledge-assets
+
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 
 # Copied outside templates/ on purpose: envsubst would eat $host and the other
