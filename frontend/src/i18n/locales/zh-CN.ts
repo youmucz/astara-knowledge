@@ -6226,6 +6226,7 @@ export default {
     channelYuque: '语雀',
     channelGitLab: 'GitLab',
     channelIma: '腾讯 IMA',
+    channelAstara: 'Plane 页面',
     channelUpload: '上传',
     channelManual: '手动',
     channelUrl: '网页',

@@ -468,6 +468,7 @@ export default {
     channelYuque: 'Yuque',
     channelGitLab: 'GitLab',
     channelIma: 'Tencent IMA',
+    channelAstara: 'Plane Page',
     channelUpload: 'Upload',
     channelManual: 'Manual',
     channelUrl: 'Web',

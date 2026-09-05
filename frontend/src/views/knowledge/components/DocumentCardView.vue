@@ -159,6 +159,8 @@ const channelLabelMap: Record<string, string> = {
   slack: 'knowledgeBase.channelSlack',
   im: 'knowledgeBase.channelIm',
   ima: 'knowledgeBase.channelIma',
+  // Native Plane Pages synchronized through the Astara document seam.
+  astara: 'knowledgeBase.channelAstara',
 };
 
 const getChannelLabel = (channel: string) => {

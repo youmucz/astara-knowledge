@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, reactive, computed, nextTick } from "vue";
 import { isEmbeddedMode } from "@/embedded/mode";
+import { requestEmbeddedSourceOpen } from "@/embedded/sourceOpen";
 import { MessagePlugin } from "tdesign-vue-next";
 import DocContent from "@/components/doc-content.vue";
 import useKnowledgeBase from '@/hooks/useKnowledgeBase';
@@ -2088,8 +2089,32 @@ const {
 const isManualDraftKnowledge = (item: KnowledgeCard) =>
   item.type === 'manual' && item.parse_status === 'draft';
 
+/**
+ * Native Plane Pages synchronized through the Astara document seam carry
+ * channel='astara' and their stable external identity (the Plane Page UUID)
+ * in metadata. Their authoritative content lives in Plane, so opening one
+ * must route through the host callback to the Plane Page editor instead of
+ * the WeKnora chunk preview.
+ */
+const planePageSourceRef = (item: KnowledgeCard) => {
+  if (item?.channel !== 'astara') return null;
+  const metadata = item.metadata;
+  const externalId =
+    metadata && typeof metadata === 'object' ? String(metadata.external_id ?? '') : '';
+  if (!externalId) return null;
+  const projectIds = Array.isArray(metadata?.project_ids) ? metadata.project_ids : [];
+  const projectId = projectIds.length > 0 ? String(projectIds[0]) : undefined;
+  return { type: 'plane_page', pageId: externalId, ...(projectId ? { projectId } : {}) };
+};
+
 const openKnowledgeItem = (item: KnowledgeCard) => {
   if (shouldSuppressDocClick()) return;
+  // Native Plane Pages open in the Plane Page editor through the typed host
+  // callback; in standalone mode (no host) fall through to the preview.
+  const sourceRef = planePageSourceRef(item);
+  if (sourceRef && requestEmbeddedSourceOpen(sourceRef)) {
+    return;
+  }
   if (canEdit.value && isManualDraftKnowledge(item)) {
     const index = cardList.value.findIndex((c) => c.id === item.id);
     if (index >= 0) {

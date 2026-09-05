@@ -35,6 +35,7 @@ import {
   type KnowledgeEmbeddedProps,
 } from './contract'
 import { activateEmbeddedMode, setEmbeddedSessionExpiredHandler } from './mode'
+import { setEmbeddedSourceOpenHandler } from './sourceOpen'
 import { setApiBaseOverride } from '@/utils/api-base'
 import { bootstrapEmbeddedSession } from './session'
 import { createEmbeddedRouter } from './router'
@@ -139,6 +140,7 @@ export async function mount(
   const exchange = await bootstrapEmbeddedSession(props.exchange.assertion)
   if (!exchange.ok) {
     setEmbeddedSessionExpiredHandler(null)
+    setEmbeddedSourceOpenHandler(null)
     throw new EmbeddedBootstrapError(exchange.code ?? 'exchange_failed')
   }
 
@@ -170,6 +172,10 @@ export async function mount(
 
   let callbacks: KnowledgeEmbeddedCallbacks = props.callbacks
   setEmbeddedSessionExpiredHandler(() => callbacks.onSessionExpired())
+  // Native source opening (e.g. plane_page documents) routes through the
+  // same live-callback indirection so host-provided replacements on update
+  // take effect without remounting.
+  setEmbeddedSourceOpenHandler((source) => callbacks.onOpenSource(source))
 
   // Seed the memory history with the host URL, then wait for the first
   // navigation (component load) to settle before mounting.
@@ -197,6 +203,7 @@ export async function mount(
       if (patch.callbacks) {
         callbacks = patch.callbacks
         setEmbeddedSessionExpiredHandler(() => callbacks.onSessionExpired())
+        setEmbeddedSourceOpenHandler((source) => callbacks.onOpenSource(source))
       }
       if (patch.workspace && patch.workspace.id !== internals.workspaceId) {
         // Workspace switches MUST go through unmount + mount so no tenant
@@ -241,6 +248,7 @@ export async function mount(
       // teardown so no callback can resolve into a dead container.
       abortEmbeddedRequests()
       setEmbeddedSessionExpiredHandler(null)
+      setEmbeddedSourceOpenHandler(null)
       internals.removeAfterEach()
       try {
         internals.app.unmount()
