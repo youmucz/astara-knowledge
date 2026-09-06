@@ -74,3 +74,51 @@ migration is additive, so bindings can be retained for a later retry. If a
 schema rollback is required, first prove no externally identified rows remain,
 back up the isolated Knowledge database and files, then apply the paired down
 migration. Keep Knowledge unavailable until reconciliation is complete.
+
+## Backup and restore quarantine
+
+`scripts/knowledge_backup.sh --output <dir>` takes a consistent backup of the
+authoritative state: a custom-format database dump, the provider-managed
+source files volume, the storage mapping, and a secret-escrow manifest
+(secret NAMES only — values are never written). `scripts/knowledge_restore.sh
+--backup <dir> --quarantine-project <name>` restores into a fresh quarantine
+stack and runs `scripts/knowledge_postrestore_validate.py`, which proves the
+applied migration position, storage references, source reconciliation,
+authorization probes, and index coverage before the stack may serve. A
+restored stack stays quarantined: promote it explicitly by repointing Plane's
+edge after the validation report passes.
+
+## Candidate reindex, cutover, and rollback
+
+Plane-side reindex runs never write into the active provider knowledge base:
+`manage.py knowledge_provisioning reindex-start --space-id <id>` creates (or
+resumes) one durable candidate run, `reindex-process --run-id <id>` performs
+resumable version-fenced upserts (matching hashes and revisions are skipped),
+`reindex-cutover --confirm <candidate-kb-id>` atomically repoints the Space
+only at declared coverage, `reindex-rollback --confirm <previous-kb-id>`
+restores the previous knowledge base inside a bounded window, and
+`reindex-cleanup --confirm <candidate-kb-id>` deletes only a
+confirmed-inactive target. Cleanup refuses the active pointer and any target
+protected by the rollback window even when a confirmation is supplied.
+
+## Upstream advisory triage and emergency fork patch
+
+The weekly `Upstream advisory triage` workflow runs `govulncheck`, `npm
+audit`, and `cargo audit` against the pinned baseline and opens a bounded
+triage issue on findings. Triage each finding against the pinned upstream
+commit before any action:
+
+1. **Exposure check.** The astara-knowledge profile constructs only the
+   knowledge services; a finding in an unconstructed Agent/Skills/Sandbox/
+   MCP/Web-Search/IM/Memory surface is not reachable and is recorded as such
+   in the triage issue.
+2. **Patch lane.** For reachable findings, create an emergency fork branch
+   from the current release commit, apply the minimal upstream fix, bump the
+   patch segment of the implementation version (`0.1.0-astara.2`), and run
+   the release workflow on a `v*-astara.*` tag.
+3. **Pin bump.** Record the new image digests in Plane's dependency manifest
+   through a release PR that also re-records the compatibility matrix row
+   from a passing integration run. Admission stays closed until the closure
+   verify, signature verify, and evaluation gates pass against the new pins.
+4. **Never** move an existing release tag, reuse an implementation version,
+   or hot-patch a running deployment in place.

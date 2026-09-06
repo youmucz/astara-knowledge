@@ -1,0 +1,90 @@
+name: Upstream advisory triage
+
+# Continuous security verification against the pinned upstream baseline:
+# Go vulnerability scanning (govulncheck reaches the exact pinned modules),
+# frontend dependency auditing, and the Rust anydoc parser audit run on a
+# weekly schedule and on demand. Findings open a bounded triage issue and
+# never auto-bump the pin: the emergency fork patch / pin-bump procedure in
+# docs/astara-release-and-operations.md stays the only path.
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with: {go-version-file: go.mod}
+      - name: govulncheck the pinned module set
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./... | tee govulncheck-report.txt
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: govulncheck-report
+          path: govulncheck-report.txt
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: npm audit the pinned frontend dependencies
+        working-directory: frontend
+        run: npm ci --ignore-scripts && npm audit --audit-level=high | tee ../npm-audit-report.txt || true
+
+  anydoc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo audit the Rust anydoc parser
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit | tee cargo-audit-report.txt || true
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: cargo-audit-report
+          path: cargo-audit-report.txt
+
+  triage:
+    runs-on: ubuntu-latest
+    needs: [go, frontend, anydoc]
+    if: failure()
+    steps:
+      - name: Open a bounded advisory triage issue
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Advisory triage: upstream vulnerabilities detected (${new Date().toISOString().slice(0, 10)})`,
+              labels: ["security", "advisory-triage"],
+              body: [
+                "Upstream advisory scanning found findings against the pinned baseline.",
+                "",
+                `- Run: ${runUrl}`,
+                "- Triage each finding against the pinned upstream baseline before any action.",
+                "- Fixes go through the emergency fork patch / pin-bump procedure in",
+                "  `docs/astara-release-and-operations.md`; the release pin is never auto-bumped.",
+              ].join("\n"),
+            });
