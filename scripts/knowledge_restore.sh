@@ -14,7 +14,7 @@
 #
 # Usage:
 #   scripts/knowledge_restore.sh --backup <dir> --quarantine-project <name> \
-#     [--compose-file <file>] [--expected-migration-position <n>]
+#     [--compose-file <file>]... [--expected-migration-position <n>]
 #
 # Environment: KNOWLEDGE_DB_PASSWORD, ASTARA_SERVICE_AUTH_SECRET,
 # ASTARA_IDENTITY_EXCHANGE_SECRET, SYSTEM_AES_KEY (values from your escrow).
@@ -22,14 +22,14 @@
 set -euo pipefail
 
 BACKUP_DIR=""
-COMPOSE_FILE="deploy/astara-knowledge/compose.yml"
+COMPOSE_FILES=("deploy/astara-knowledge/compose.yml")
 QUARANTINE_PROJECT="astara-knowledge-quarantine"
 EXPECTED_MIGRATION_POSITION=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --backup) BACKUP_DIR="$2"; shift 2 ;;
-    --compose-file) COMPOSE_FILE="$2"; shift 2 ;;
+    --compose-file) COMPOSE_FILES+=("$2"); shift 2 ;;
     --quarantine-project) QUARANTINE_PROJECT="$2"; shift 2 ;;
     --expected-migration-position) EXPECTED_MIGRATION_POSITION="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -57,15 +57,21 @@ print('backup integrity verified')
 "
 
 compose() {
-  docker compose -p "$QUARANTINE_PROJECT" -f "$COMPOSE_FILE" "$@"
+  local args=()
+  local file
+  for file in "${COMPOSE_FILES[@]}"; do
+    args+=(-f "$file")
+  done
+  docker compose -p "$QUARANTINE_PROJECT" "${args[@]}" "$@"
 }
 
 # 1. Start a FRESH quarantine stack (never the running project).
 compose down -v >/dev/null 2>&1 || true
 compose up -d --wait db redis
 
-# 2. Restore the database from the custom-format dump.
-compose exec -T db sh -c 'pg_restore -U postgres --clean --if-exists --dbname astara_knowledge -' \
+# 2. Restore the database from the custom-format dump (pg_restore reads
+#    the dump from stdin when no input file is given).
+compose exec -T db sh -c 'pg_restore -U "${DB_USER:-astara_knowledge}" --clean --if-exists --dbname astara_knowledge' \
   < "$BACKUP_DIR/knowledge-db.dump"
 
 # 3. Restore the provider-managed source files into the quarantine files
@@ -81,9 +87,10 @@ compose up -d --wait api
 
 # 5. Post-restore validation: the stack stays quarantined until every check
 #    passes. Failures exit non-zero and the stack is left for inspection.
+COMPOSE_CSV="$(IFS=,; echo -n "${COMPOSE_FILES[*]}")"
 python3 scripts/knowledge_postrestore_validate.py \
   --compose-project "$QUARANTINE_PROJECT" \
-  --compose-file "$COMPOSE_FILE" \
+  --compose-file "$COMPOSE_CSV" \
   --backup "$BACKUP_DIR" \
   ${EXPECTED_MIGRATION_POSITION:+--expected-migration-position "$EXPECTED_MIGRATION_POSITION"}
 

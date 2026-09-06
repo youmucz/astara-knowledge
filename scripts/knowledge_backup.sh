@@ -52,7 +52,7 @@ mkdir -p "$OUTPUT_DIR"
 
 # 1. Consistent database dump: a single custom-format dump of the whole DB
 #    (schema + data) so the restore can replay migrations deterministically.
-compose exec -T db pg_dump -U postgres -d astara_knowledge -Fc > "$OUTPUT_DIR/knowledge-db.dump"
+compose exec -T db pg_dump -U "${DB_USER:-astara_knowledge}" -d astara_knowledge -Fc > "$OUTPUT_DIR/knowledge-db.dump"
 
 # 2. Provider-managed source files: the files volume holds the authoritative
 #    uploaded document binaries; chunks/indexes are reconstructable.
@@ -68,39 +68,29 @@ printf '%s' "$STORAGE_MAPPING" > "$OUTPUT_DIR/storage-mapping.json"
 
 # 4. Secret escrow manifest: names and presence only. Values are delivered
 #    through the operator's own escrow; a missing secret fails the restore.
-cat > "$OUTPUT_DIR/secret-escrow.json" <<'EOF'
-{
-  "schemaVersion": 1,
-  "required": [
-    "ASTARA_SERVICE_AUTH_SECRET",
-    "ASTARA_IDENTITY_EXCHANGE_SECRET",
-    "SYSTEM_AES_KEY",
-    "DB_PASSWORD"
-  ],
-  "present": {
-    "ASTARA_SERVICE_AUTH_SECRET": PLACEHOLDER_AUTH,
-    "ASTARA_IDENTITY_EXCHANGE_SECRET": PLACEHOLDER_IDENTITY,
-    "SYSTEM_AES_KEY": PLACEHOLDER_AES,
-    "DB_PASSWORD": PLACEHOLDER_DB
-  }
-}
-EOF
 python3 - "$OUTPUT_DIR/secret-escrow.json" <<'PYEOF'
 import json, os, pathlib, sys
 path = pathlib.Path(sys.argv[1])
-data = json.loads(path.read_text())
-present = {
-    "ASTARA_SERVICE_AUTH_SECRET": bool(os.environ.get("ASTARA_SERVICE_AUTH_SECRET", "")),
-    "ASTARA_IDENTITY_EXCHANGE_SECRET": bool(os.environ.get("ASTARA_IDENTITY_EXCHANGE_SECRET", "")),
-    "SYSTEM_AES_KEY": bool(os.environ.get("SYSTEM_AES_KEY", "")),
-    "DB_PASSWORD": bool(os.environ.get("KNOWLEDGE_DB_PASSWORD", "")),
+data = {
+    "schemaVersion": 1,
+    "required": [
+        "ASTARA_SERVICE_AUTH_SECRET",
+        "ASTARA_IDENTITY_EXCHANGE_SECRET",
+        "SYSTEM_AES_KEY",
+        "DB_PASSWORD",
+    ],
+    "present": {
+        "ASTARA_SERVICE_AUTH_SECRET": bool(os.environ.get("ASTARA_SERVICE_AUTH_SECRET", "")),
+        "ASTARA_IDENTITY_EXCHANGE_SECRET": bool(os.environ.get("ASTARA_IDENTITY_EXCHANGE_SECRET", "")),
+        "SYSTEM_AES_KEY": bool(os.environ.get("SYSTEM_AES_KEY", "")),
+        "DB_PASSWORD": bool(os.environ.get("KNOWLEDGE_DB_PASSWORD", "")),
+    },
 }
-data["present"] = present
 path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
 PYEOF
 
 # 5. Backup manifest: closure identity plus checksums of every artifact.
-python3 - "$OUTPUT_DIR" <<'PYEOF'
+PROJECT_NAME="$PROJECT_NAME" COMPOSE_FILE="$COMPOSE_FILE" python3 - "$OUTPUT_DIR" <<'PYEOF'
 import hashlib, json, os, pathlib, subprocess, sys
 output = pathlib.Path(sys.argv[1])
 def digest(name):

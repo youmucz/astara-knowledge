@@ -52,58 +52,85 @@ def verify_backup_integrity(backup: pathlib.Path) -> dict:
 
 
 def compose(project: str, compose_file: str, *args: str) -> str:
-    result = subprocess.run(
-        ["docker", "compose", "-p", project, "-f", compose_file, *args],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    """Run docker compose; compose_file may carry multiple paths."""
+    command = ["docker", "compose", "-p", project]
+    for file in compose_file.split(","):
+        command += ["-f", file.strip()]
+    command += list(args)
+    result = subprocess.run(command, capture_output=True, text=True, check=True)
     return result.stdout
 
 
-def readiness(base_url: str, secret: str) -> tuple[bool, dict]:
-    request = urllib.request.Request(
+def readiness(base_url: str, secret: str, project: str, compose_file: str) -> tuple[bool, dict]:
+    """Fetch /health/ready from inside the compose network (no host ports)."""
+    import json as json_module
+
+    output = compose(
+        project,
+        compose_file,
+        "exec",
+        "-T",
+        "api",
+        "curl",
+        "-s",
+        "-H",
+        f"Authorization: Bearer {secret}",
         f"{base_url}/health/ready",
-        headers={"Authorization": f"Bearer {secret}"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-            return response.status == 200 and payload.get("ready") is True, payload
-    except urllib.error.HTTPError as error:
-        try:
-            return False, json.loads(error.read().decode("utf-8"))
-        except (ValueError, OSError):
-            return False, {}
-    except (urllib.error.URLError, TimeoutError):
+        payload = json_module.loads(output or "{}")
+    except ValueError:
         return False, {}
+    return bool(payload.get("ready")) is True, payload
 
 
-def control_probe(base_url: str, secret: str, path: str) -> int:
-    request = urllib.request.Request(
+def control_probe(base_url: str, secret: str, path: str, project: str, compose_file: str) -> int:
+    """One bounded status code from inside the compose network."""
+    output = compose(
+        project,
+        compose_file,
+        "exec",
+        "-T",
+        "api",
+        "curl",
+        "-s",
+        "-o",
+        "/dev/null",
+        "-w",
+        "%{http_code}",
+        "-H",
+        f"Authorization: Bearer {secret}",
         f"{base_url}{path}",
-        headers={"Authorization": f"Bearer {secret}"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            return response.status
-    except urllib.error.HTTPError as error:
-        return error.code
-    except (urllib.error.URLError, TimeoutError):
+        return int(output.strip())
+    except ValueError:
         return -1
 
 
 def sql(project: str, compose_file: str, statement: str) -> str:
-    return compose(project, compose_file, "exec", "-T", "db", "psql", "-U", "postgres", "-d", "astara_knowledge", "-tAc", statement)
+    import os
+
+    user = os.environ.get("DB_USER", "astara_knowledge")
+    return compose(
+        project,
+        compose_file,
+        "exec",
+        "-T",
+        "db",
+        "sh",
+        "-c",
+        f'psql -U "{user}" -d astara_knowledge -tAc "{statement}"',
+    )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--compose-project", default="astara-knowledge-quarantine")
-    parser.add_argument("--compose-file", default="deploy/astara-knowledge/compose.yml")
+    parser.add_argument("--compose-file", default="deploy/astara-knowledge/compose.yml", help="one path or comma-separated paths")
     parser.add_argument("--backup", required=True)
     parser.add_argument("--expected-migration-position", type=int, default=None)
-    parser.add_argument("--api-url", default="http://127.0.0.1:8080")
+    parser.add_argument("--api-url", default="http://127.0.0.1:8080", help="in-network base URL of the api service")
     parser.add_argument("--report", default="postrestore-report.json")
     args = parser.parse_args()
 
@@ -184,7 +211,13 @@ def main() -> int:
     }
 
     # 4. Authorization probes: unknown tenant lookups must be denied.
-    status = control_probe(args.api_url, secret, "/api/v1/astara/tenants/by-external-id?external_system=astara&external_id=postrestore-unknown-probe")
+    status = control_probe(
+        args.api_url,
+        secret,
+        "/api/v1/astara/tenants/by-external-id?external_system=astara&external_id=postrestore-unknown-probe",
+        args.compose_project,
+        args.compose_file,
+    )
     checks["authorization_probe"] = {
         "unknown_tenant_status": status,
         "state": "met" if status in (401, 403, 404) else "breached",
@@ -206,7 +239,7 @@ def main() -> int:
     }
 
     # Readiness must also be true before the quarantine can lift.
-    ready, payload = readiness(args.api_url, secret)
+    ready, payload = readiness(args.api_url, secret, args.compose_project, args.compose_file)
     checks["readiness"] = {
         "ready": ready,
         "identity_matches_backup": payload.get("identity") == manifest.get("identity") or None,
