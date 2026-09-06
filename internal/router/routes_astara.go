@@ -26,6 +26,17 @@ func RegisterAstaraControlPlaneRoutes(r *gin.RouterGroup, h *handler.AstaraContr
 	group.DELETE("/knowledge-bases/:knowledge_base_id/documents/:document_id", h.DeleteDocument)
 }
 
+// RegisterAstaraAnswerRoute wires the stateless ordinary-RAG answer endpoint
+// behind the same service authentication as the control plane. The handler
+// is nil-safe: an unwired dependency removes the route instead of exposing a
+// panic path.
+func RegisterAstaraAnswerRoute(r *gin.RouterGroup, h *handler.AstaraAnswerHandler) {
+	if h == nil {
+		return
+	}
+	r.Group("/astara", handler.AstaraServiceAuth).POST("/answer", h.Answer)
+}
+
 // RegisterAstaraIdentityRoutes wires the embedded identity exchange. The
 // exchange endpoint authenticates with the one-time assertion itself (it
 // is the credential being redeemed), so it must be registered before the

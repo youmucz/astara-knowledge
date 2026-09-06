@@ -93,6 +93,7 @@ type RouterParams struct {
 	MemoryHandler                 *handler.MemoryHandler `optional:"true"`
 	AstaraControlPlaneHandler     *handler.AstaraControlPlaneHandler
 	AstaraIdentityExchangeHandler *handler.AstaraIdentityExchangeHandler `optional:"true"`
+	AstaraAnswerHandler           *handler.AstaraAnswerHandler           `optional:"true"`
 	EmbeddedSessionService        interfaces.EmbeddedSessionService      `optional:"true"`
 }
 
@@ -182,6 +183,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 	if profile.Valid {
 		RegisterAstaraControlPlaneRoutes(r.Group("/api/v1"), params.AstaraControlPlaneHandler)
 		RegisterAstaraIdentityRoutes(r.Group("/api/v1"), params.AstaraIdentityExchangeHandler)
+		RegisterAstaraAnswerRoute(r.Group("/api/v1"), params.AstaraAnswerHandler)
 	}
 	// 认证中间件
 	r.Use(middleware.Auth(params.TenantService, params.UserService, params.TenantMemberService, params.TenantAPIKeyService, params.Config, params.EmbeddedSessionService))

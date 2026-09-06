@@ -493,6 +493,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	// Wiki page handler
 	must(container.Provide(handler.NewWikiPageHandler))
 	must(container.Provide(handler.NewAstaraControlPlaneHandler))
+	must(container.Provide(handler.NewAstaraAnswerHandler))
 	must(container.Provide(service.NewEmbeddedSessionService))
 	must(container.Provide(handler.NewAstaraIdentityExchangeHandler))
 	// IM integration

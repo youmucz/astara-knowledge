@@ -153,6 +153,17 @@ func (s *sessionService) KnowledgeQA(
 	// rewrite, fallback, FAQ strategy, history turns)
 	s.applyAgentOverridesToChatManage(ctx, req.CustomAgent, chatManage)
 
+	// Stateless answer seam (POST /astara/answer): no provider session is
+	// created or recalled. History loading is disabled regardless of config,
+	// long-term memory recall is skipped, and the caller's web-search/agent
+	// authority is structurally absent from the request.
+	if req.Stateless {
+		chatManage.PipelineRequest.MaxRounds = 0
+		chatManage.PipelineRequest.WebSearchEnabled = false
+		statelessMemory := false
+		ctx = types.ApplyAgentMemoryPreference(ctx, &statelessMemory)
+	}
+
 	// An agent may opt out of long-term memory. The preference is per-request
 	// rather than per-user, so it travels in the context that the recall
 	// plugin reads.
@@ -186,14 +197,14 @@ func (s *sessionService) KnowledgeQA(
 
 		pipeline = types.NewPipelineBuilder().
 			AddIf(hasHistory, types.LOAD_HISTORY).
-			Add(types.MEMORY_RECALL).
+			AddIf(!req.Stateless, types.MEMORY_RECALL).
 			Add(types.CHAT_COMPLETION_STREAM).
 			Build()
 	} else {
 		// RAG — dynamically assemble based on feature flags.
 		pipeline = types.NewPipelineBuilder().
 			AddIf(hasHistory, types.LOAD_HISTORY).
-			Add(types.MEMORY_RECALL).
+			AddIf(!req.Stateless, types.MEMORY_RECALL).
 			Add(types.QUERY_UNDERSTAND).
 			Add(types.CHUNK_SEARCH_PARALLEL).
 			Add(types.CHUNK_RERANK).
