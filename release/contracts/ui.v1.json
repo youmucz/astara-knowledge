@@ -1,0 +1,15 @@
+{
+  "name": "ui",
+  "version": 1,
+  "description": "Embedded workspace Knowledge UI contract. The Plane host serves the Knowledge web microfrontend through exactly two bounded edge routes and exchanges signed bootstrap assertions.",
+  "edge_routes": [
+    "/assets",
+    "/api/knowledge"
+  ],
+  "rules": {
+    "routes": "static assets on knowledge-web and the /api/knowledge proxy prefix on knowledge-api only; stateful and execution services never appear in any proxy file",
+    "assertions": "bootstrap assertions carry iat/exp claims, the effective capability list, and the shared-space revision; drift re-mints assertions",
+    "capability_discovery": "frontend capability discovery derives from the effective backend route set and fails closed",
+    "host_callbacks": "plane_page open/edit actions route through the typed host callback to the Plane Page editor"
+  }
+}

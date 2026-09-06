@@ -15,20 +15,25 @@ const (
 type Identity struct {
 	ImplementationVersion    string `json:"implementation_version"`
 	UpstreamBaseline         string `json:"upstream_baseline"`
+	UpstreamCommit           string `json:"upstream_commit"`
 	FeatureProfile           string `json:"feature_profile"`
+	FeatureProfileDigest     string `json:"feature_profile_digest"`
 	APIContractVersion       int    `json:"api_contract_version"`
 	UIContractVersion        int    `json:"ui_contract_version"`
 	SourceContractVersion    int    `json:"source_contract_version"`
 	ToolContractVersion      int    `json:"tool_contract_version"`
 	ReadinessContractVersion int    `json:"readiness_contract_version"`
 	MigrationVersion         int    `json:"migration_version"`
+	MigrationPosition        int    `json:"migration_position"`
 }
 
 func ReleaseIdentity(profile Profile) Identity {
 	return Identity{
 		ImplementationVersion:    ImplementationVersion,
 		UpstreamBaseline:         UpstreamBaseline,
+		UpstreamCommit:           UpstreamCommit,
 		FeatureProfile:           profile.Name,
+		FeatureProfileDigest:     ProfileDigest(profile),
 		APIContractVersion:       APIContractVersion,
 		UIContractVersion:        UIContractVersion,
 		SourceContractVersion:    SourceContractVersion,

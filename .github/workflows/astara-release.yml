@@ -75,3 +75,59 @@ jobs:
           DIGEST: ${{ steps.build.outputs.digest }}
           IMAGE: ghcr.io/youmucz/astara-knowledge-${{ matrix.image }}
         run: cosign sign --yes "${IMAGE}@${DIGEST}"
+
+  closure:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: sigstore/cosign-installer@v3
+      - name: Assemble and verify closure evidence
+        env:
+          VERSION: 0.1.0-astara.1
+          WORKFLOW_REF: ${{ github.ref }}
+          GITHUB_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          python3 - <<'EOF' > /tmp/closure-inputs.json
+          import json, os, subprocess
+          images = {}
+          for name in ("api", "web", "docreader"):
+              ref = f"ghcr.io/youmucz/astara-knowledge-{name}:{os.environ['VERSION']}"
+              digest = subprocess.run(
+                  ["docker", "buildx", "imagetools", "inspect", "--format", "{{.Manifest.Digest}}", ref],
+                  check=True, capture_output=True, text=True).stdout.strip()
+              images[name] = {"ref": ref, "digest": digest}
+          json.dump({
+              "release": {
+                  "version": os.environ["VERSION"],
+                  "upstream_baseline": "v0.8.0",
+                  "upstream_commit": "1edcd54b43606d9079bb36650efe3f68707a79ea",
+                  "feature_profile": "astara-knowledge",
+              },
+              "source": {
+                  "revision": os.environ["GITHUB_SHA"],
+                  "workflow_ref": os.environ["WORKFLOW_REF"],
+              },
+              "images": images,
+          }, open("/tmp/closure-inputs.json", "w"))
+          EOF
+          python3 scripts/publish_closure.py --output release/closure-evidence.json < /tmp/closure-inputs.json
+          # Keyless signature verification against the exact release workflow
+          # ref; any unsigned or differently-signed image fails the release.
+          for name in api web docreader; do
+            digest=$(python3 -c "import json;print(json.load(open('release/closure-evidence.json'))['images']['$name']['digest'])")
+            cosign verify \
+              --certificate-identity "https://github.com/youmucz/astara-knowledge/.github/workflows/astara-release.yml@${GITHUB_REF}" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              "ghcr.io/youmucz/astara-knowledge-${name}@${digest}"
+          done
+      - uses: actions/upload-artifact@v5
+        with:
+          name: closure-evidence
+          path: release/closure-evidence.json

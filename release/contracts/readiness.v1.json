@@ -1,0 +1,26 @@
+{
+  "name": "readiness",
+  "version": 1,
+  "description": "Canonical readiness identity exchanged by the private /health/ready endpoint. Plane admission binds the exact field set and values below; unknown or missing fields fail closed.",
+  "fields": [
+    "implementation_version",
+    "upstream_baseline",
+    "upstream_commit",
+    "feature_profile",
+    "feature_profile_digest",
+    "api_contract_version",
+    "ui_contract_version",
+    "source_contract_version",
+    "tool_contract_version",
+    "readiness_contract_version",
+    "migration_version",
+    "migration_position"
+  ],
+  "rules": {
+    "feature_profile": "must equal the profile declared by the Plane dependency manifest",
+    "feature_profile_digest": "sha256 over the canonical profile document produced by scripts/profile_digest.py",
+    "migration_version": "migration mechanism contract version (1)",
+    "migration_position": "exact applied position from the versioned migration chain",
+    "ready": "must be true only when the database, Redis, and migration state are healthy"
+  }
+}

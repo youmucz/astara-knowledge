@@ -1,0 +1,20 @@
+{
+  "name": "source",
+  "version": 1,
+  "description": "Versioned private Page source contract. Plane converts persisted Page editor content to a canonical safe projection before Knowledge ingestion; this document is the digest-bound identity of that contract.",
+  "source_kinds": [
+    "page",
+    "uploaded_file",
+    "url",
+    "external_document",
+    "faq",
+    "generated_document"
+  ],
+  "rules": {
+    "identity": "stable external identity per source; version-fenced content upsert replaces obsolete chunks atomically",
+    "content": "canonical Markdown/HTML plus attachments and metadata; Yjs binary and unsafe editor payloads are stripped",
+    "links": "canonical Plane URLs are generated server-side only",
+    "revision": "source-revision fencing: stale work can never overwrite a newer revision",
+    "deletion": "permission restriction, archive, and delete produce immediate Plane-side deny plus provider tombstone"
+  }
+}

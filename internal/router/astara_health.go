@@ -19,11 +19,15 @@ func registerAstaraHealthRoutes(r *gin.Engine, db *gorm.DB, redisClient *redis.C
 	r.GET("/health/live", live)
 	r.GET("/health/ready", func(c *gin.Context) {
 		ready := profile.Valid && dependenciesReady(c, db, redisClient)
+		identity := astara.ReleaseIdentity(profile)
+		if position, dirty, known := database.CachedMigrationVersion(); known && !dirty {
+			identity.MigrationPosition = int(position)
+		}
 		status := http.StatusOK
 		if !ready {
 			status = http.StatusServiceUnavailable
 		}
-		c.JSON(status, gin.H{"ready": ready, "identity": astara.ReleaseIdentity(profile)})
+		c.JSON(status, gin.H{"ready": ready, "identity": identity})
 	})
 }
 
