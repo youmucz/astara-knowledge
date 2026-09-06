@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "corpusVersion": "zh-enterprise-qa.v1",
+  "description": "Initial retrieval and answer quality gates for the Astara Knowledge release. Thresholds are explicit and versioned; changing any value requires a release PR that re-records the compatibility matrix.",
+  "gates": {
+    "precision_at_5": 0.75,
+    "recall_at_5": 0.7,
+    "ndcg_at_5": 0.65,
+    "mrr": 0.7,
+    "map": 0.65,
+    "answer_keyword_coverage": 0.6,
+    "no_answer_correctness": 0.8,
+    "citation_accuracy": 0.9,
+    "authorization_pass_rate": 1.0,
+    "permission_denial_rate": 1.0,
+    "latency_p95_seconds": 8.0,
+    "min_answered_cases": 10,
+    "min_retrieval_cases": 10
+  }
+}

@@ -1,0 +1,250 @@
+{
+  "schemaVersion": 1,
+  "version": "zh-enterprise-qa.v1",
+  "language": "zh-CN",
+  "description": "代表性中文企业知识问答语料：包含关键词/向量/重排检索、答案生成、无答案、权限拒绝、撤销共享、删除源、陈旧源与引用锚点用例。ground truth 只包含语料内文档与分块锚点，不包含任何外部身份或机密内容。",
+  "documents": [
+    {
+      "external_id": "eval-doc-hr-001",
+      "title": "差旅报销管理制度",
+      "content": "差旅报销管理制度（2026年修订版）\n\n第一章 报销范围\n第一条 员工因公出差产生的交通费、住宿费、餐费补助可以报销。头等舱机票原则上不予报销，特殊情况需总经理书面批准。\n第二条 住宿标准：一线城市每晚不超过 600 元，其他城市每晚不超过 450 元。超标部分个人自理。\n\n第二章 报销流程\n第三条 员工出差结束后 15 个工作日内，在费用系统提交报销单，并上传发票、行程单等原始凭证。\n第四条 报销单依次经过直属主管、财务复核、财务总监三级审批。单笔金额超过 10000 元的，还需首席执行官审批。\n\n第三章 到账时间\n第五条 审批通过后，报销款在 10 个工作日内打入员工工资卡。法定节假日期间顺延。"
+    },
+    {
+      "external_id": "eval-doc-hr-002",
+      "title": "年假与调休规定",
+      "content": "年假与调休规定\n\n第一条 入职满 1 年的员工每年享有 10 天带薪年假，工龄每满 2 年增加 1 天，上限 15 天。\n第二条 年假当年有效，最多可结转 5 天至次年 3 月 31 日，逾期作废。\n第三条 加班可申请调休，调休单需在加班发生之日起 6 个月内使用。\n第四条 连续休假超过 5 个工作日的，需提前 7 天在人事系统提交申请并完成工作交接。"
+    },
+    {
+      "external_id": "eval-doc-it-003",
+      "title": "信息安全红线与数据分级规范",
+      "content": "信息安全红线与数据分级规范\n\n第一章 数据分级\n第一条 公司数据分为公开、内部、秘密、机密四级。客户合同与定价属于机密级，仅限项目组成员访问。\n第二条 机密级文档禁止下载到个人设备，只能在线查阅，且系统会记录访问审计日志。\n\n第二章 红线行为\n第三条 严禁将生产环境数据库凭据提交到代码仓库或粘贴到任何即时通讯工具。\n第四条 员工离职当天必须交还全部办公设备，人事部同步关闭其全部系统账号。\n\n第三章 违规处理\n第五条 泄露机密数据的，视情节严重程度给予警告、解除劳动合同直至追究法律责任。"
+    },
+    {
+      "external_id": "eval-doc-it-004",
+      "title": "办公网络与 VPN 使用指引",
+      "content": "办公网络与 VPN 使用指引\n\n一、办公区网络\n1. 办公区提供有线与无线网络，无线网络名称为 ASTARA-OFFICE，使用员工工号登录。\n2. 访客网络 ASTARA-GUEST 与办公网络隔离，不能访问任何内部系统。\n\n二、远程接入\n3. 远程办公必须通过公司 VPN 接入，VPN 客户端从 IT 服务台门户下载。\n4. VPN 账号与员工账号绑定，禁止共享账号或转借硬件令牌。\n5. VPN 连接闲置 30 分钟自动断开，需要重新认证。\n\n三、故障申报\n6. 网络故障请拨打 IT 服务台分机 8888 或在服务台门户提交工单，响应时间为工作时间 2 小时内。"
+    },
+    {
+      "external_id": "eval-doc-fn-005",
+      "title": "采购与供应商付款流程",
+      "content": "采购与供应商付款流程\n\n一、采购申请\n1. 需求部门在采购系统填写采购申请单，注明预算科目与预计金额。\n2. 采购金额 50000 元以下由部门负责人审批；50000 元（含）以上需采购委员会集体决策。\n\n二、合同与验收\n3. 供应商合同由法务审核后用印，未经用印的合同不得付款。\n4. 货物或服务验收合格后，需求部门在 5 个工作日内上传验收单。\n\n三、付款\n5. 财务部在收到全额增值税专用发票并核对验收单后，按合同账期付款，一般为月结 60 天。\n6. 任何形式的预付款都必须由首席财务官书面批准。"
+    },
+    {
+      "external_id": "eval-doc-fn-006",
+      "title": "发票开具与税费说明",
+      "content": "发票开具与税费说明\n\n一、对外开票\n1. 向客户开具增值税发票前，必须核对合同金额、收款进度与客户开票信息三要素。\n2. 专用发票与普通发票的税率按现行税法执行，开票员不得擅自调整税率。\n\n二、进项发票\n3. 员工报销和供应商付款必须取得合规发票，不合规票据财务一律退回。\n4. 电子发票需查重，防止重复报销。\n\n三、归档\n5. 已开具和已认证的发票按月装订归档，保存期限不少于 10 年。"
+    },
+    {
+      "external_id": "eval-doc-op-007",
+      "title": "会议室预订与办公设备领用",
+      "content": "会议室预订与办公设备领用\n\n一、会议室\n1. 会议室通过办公平台预订，最长可预订连续 4 小时。\n2. 连续两次预订未使用且未提前取消的部门，将被暂停预订权限一个月。\n\n二、设备领用\n3. 显示器、键盘等标准设备由行政部按入职清单直接配发。\n4. 非标准设备（如绘图仪、专用测试机）需部门负责人审批后领用，离职时归还。\n\n三、报修\n5. 办公设备故障在行政服务平台提交报修单，一般故障 1 个工作日内处理。"
+    }
+  ],
+  "cases": [
+    {
+      "id": "zh-r-001",
+      "kind": "retrieval",
+      "query": "出差住宿费每晚最多能报多少",
+      "expect_document": "eval-doc-hr-001",
+      "expect_passages": ["住宿标准"]
+    },
+    {
+      "id": "zh-r-002",
+      "kind": "retrieval",
+      "query": "报销单审批要经过哪些环节",
+      "expect_document": "eval-doc-hr-001",
+      "expect_passages": ["三级审批"]
+    },
+    {
+      "id": "zh-r-003",
+      "kind": "retrieval",
+      "query": "年假最多可以攒到多少天",
+      "expect_document": "eval-doc-hr-002",
+      "expect_passages": ["结转 5 天"]
+    },
+    {
+      "id": "zh-r-004",
+      "kind": "retrieval",
+      "query": "调休单有效期是多久",
+      "expect_document": "eval-doc-hr-002",
+      "expect_passages": ["6 个月内"]
+    },
+    {
+      "id": "zh-r-005",
+      "kind": "retrieval",
+      "query": "生产数据库密码可以贴到聊天工具吗",
+      "expect_document": "eval-doc-it-003",
+      "expect_passages": ["严禁"]
+    },
+    {
+      "id": "zh-r-006",
+      "kind": "retrieval",
+      "query": "客户合同属于哪个数据等级",
+      "expect_document": "eval-doc-it-003",
+      "expect_passages": ["机密"]
+    },
+    {
+      "id": "zh-r-007",
+      "kind": "retrieval",
+      "query": "访客无线网能不能访问内部系统",
+      "expect_document": "eval-doc-it-004",
+      "expect_passages": ["隔离"]
+    },
+    {
+      "id": "zh-r-008",
+      "kind": "retrieval",
+      "query": "VPN 闲置多久会掉线",
+      "expect_document": "eval-doc-it-004",
+      "expect_passages": ["30 分钟"]
+    },
+    {
+      "id": "zh-r-009",
+      "kind": "retrieval",
+      "query": "五万元以下的采购谁审批",
+      "expect_document": "eval-doc-fn-005",
+      "expect_passages": ["部门负责人"]
+    },
+    {
+      "id": "zh-r-010",
+      "kind": "retrieval",
+      "query": "供应商付款账期一般是多少天",
+      "expect_document": "eval-doc-fn-005",
+      "expect_passages": ["月结 60 天"]
+    },
+    {
+      "id": "zh-r-011",
+      "kind": "retrieval",
+      "query": "电子发票要怎么防止重复报销",
+      "expect_document": "eval-doc-fn-006",
+      "expect_passages": ["查重"]
+    },
+    {
+      "id": "zh-r-012",
+      "kind": "retrieval",
+      "query": "发票档案要保存几年",
+      "expect_document": "eval-doc-fn-006",
+      "expect_passages": ["10 年"]
+    },
+    {
+      "id": "zh-a-001",
+      "kind": "answer",
+      "query": "一线城市出差住宿报销标准是多少",
+      "expect_document": "eval-doc-hr-001",
+      "answer_must_contain": ["600"],
+      "answer_must_not_contain": ["450 元为一线城市标准"]
+    },
+    {
+      "id": "zh-a-002",
+      "kind": "answer",
+      "query": "报销款多久到账",
+      "expect_document": "eval-doc-hr-001",
+      "answer_must_contain": ["10 个工作日"]
+    },
+    {
+      "id": "zh-a-003",
+      "kind": "answer",
+      "query": "年假可以结转到什么时候",
+      "expect_document": "eval-doc-hr-002",
+      "answer_must_contain": ["3 月 31 日"]
+    },
+    {
+      "id": "zh-a-004",
+      "kind": "answer",
+      "query": "泄露机密数据会怎么处理",
+      "expect_document": "eval-doc-it-003",
+      "answer_must_contain": ["解除劳动合同"]
+    },
+    {
+      "id": "zh-a-005",
+      "kind": "answer",
+      "query": "预付款需要谁批准",
+      "expect_document": "eval-doc-fn-005",
+      "answer_must_contain": ["首席财务官"]
+    },
+    {
+      "id": "zh-a-006",
+      "kind": "answer",
+      "query": "员工离职当天信息安全方面要做什么",
+      "expect_document": "eval-doc-it-003",
+      "answer_must_contain": ["交还", "账号"]
+    },
+    {
+      "id": "zh-a-007",
+      "kind": "answer",
+      "query": "会议室最长能订多久",
+      "expect_document": "eval-doc-op-007",
+      "answer_must_contain": ["4 小时"]
+    },
+    {
+      "id": "zh-a-008",
+      "kind": "answer",
+      "query": "网络故障找谁处理",
+      "expect_document": "eval-doc-it-004",
+      "answer_must_contain": ["8888"]
+    },
+    {
+      "id": "zh-n-001",
+      "kind": "no_answer",
+      "query": "公司食堂本周菜单是什么"
+    },
+    {
+      "id": "zh-n-002",
+      "kind": "no_answer",
+      "query": "2027 年春节放假安排"
+    },
+    {
+      "id": "zh-n-003",
+      "kind": "no_answer",
+      "query": "公司股票期权行权价格"
+    },
+    {
+      "id": "zh-n-004",
+      "kind": "no_answer",
+      "query": "总部大楼物业管理费"
+    },
+    {
+      "id": "zh-p-001",
+      "kind": "permission_denied",
+      "query": "客户合同的数据等级",
+      "denied_document": "eval-doc-it-003",
+      "expect": "denied"
+    },
+    {
+      "id": "zh-p-002",
+      "kind": "revocation",
+      "query": "采购委员会的审批权限",
+      "revoked_document": "eval-doc-fn-005",
+      "expect": "denied"
+    },
+    {
+      "id": "zh-p-003",
+      "kind": "deleted",
+      "query": "会议室预订违规的处罚",
+      "deleted_document": "eval-doc-op-007",
+      "expect": "denied"
+    },
+    {
+      "id": "zh-s-001",
+      "kind": "stale_source",
+      "query": "住宿报销标准是多少",
+      "stale_document": "eval-doc-hr-001",
+      "stale_revision": 1,
+      "updated_content": "住宿标准：一线城市每晚不超过 700 元，其他城市每晚不超过 500 元。",
+      "answer_must_contain": ["700"]
+    },
+    {
+      "id": "zh-c-001",
+      "kind": "citation",
+      "query": "报销流程的审批层级",
+      "expect_document": "eval-doc-hr-001",
+      "expect_citation": true
+    },
+    {
+      "id": "zh-c-002",
+      "kind": "citation",
+      "query": "VPN 使用有什么要求",
+      "expect_document": "eval-doc-it-004",
+      "expect_citation": true
+    }
+  ]
+}

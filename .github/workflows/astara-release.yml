@@ -22,9 +22,54 @@ jobs:
         with: {node-version: "24", cache: npm, cache-dependency-path: frontend/package-lock.json}
       - run: python3 scripts/verify_astara_release.py
       - run: python3 -m unittest deploy/astara-knowledge/compose_inventory_test.py
+      - run: python3 -m unittest evaluation.test_evaluation
       - run: go test ./internal/astara ./internal/router ./internal/handler ./release
       - run: npm ci && npm test
         working-directory: frontend
+
+  evaluation:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: images
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run the versioned evaluation gates against the released images
+        env:
+          ASTARA_SERVICE_AUTH_SECRET: evaluation-service-auth-secret-0123456789
+          ASTARA_IDENTITY_EXCHANGE_SECRET: evaluation-identity-secret-0123456789
+          KNOWLEDGE_DB_PASSWORD: evaluation-db-password-0123456789
+          EVALUATION_PROJECT: astara-knowledge-evaluation
+        run: |
+          set -euo pipefail
+          # The stack publishes no host ports (private by design); the
+          # stdlib-only runner executes inside the compose network.
+          docker compose -p "${EVALUATION_PROJECT}" -f deploy/astara-knowledge/compose.yml up -d --wait
+          docker run --rm \
+            --network "${EVALUATION_PROJECT}_default" \
+            -v "${PWD}:/repo" -w /repo \
+            -e PYTHONPATH=/repo \
+            python:3.12-slim \
+            python /repo/evaluation/runner.py \
+              --base-url http://api:8080 \
+              --service-auth-secret "${ASTARA_SERVICE_AUTH_SECRET}" \
+              --report /repo/evaluation/evaluation-report.json \
+              --run-id "${GITHUB_RUN_ID:-evaluation}"
+      - name: Tear down the evaluation stack
+        if: always()
+        env:
+          KNOWLEDGE_DB_PASSWORD: evaluation-db-password-0123456789
+          ASTARA_SERVICE_AUTH_SECRET: evaluation-service-auth-secret-0123456789
+          ASTARA_IDENTITY_EXCHANGE_SECRET: evaluation-identity-secret-0123456789
+        run: |
+          # Deliberately no --remove-orphans: orphan pruning is project-agnostic
+          # and would delete containers outside the pinned compose project.
+          docker compose -p astara-knowledge-evaluation -f deploy/astara-knowledge/compose.yml down -v || true
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: evaluation-report
+          path: evaluation/evaluation-report.json
 
   images:
     if: startsWith(github.ref, 'refs/tags/')
@@ -78,7 +123,7 @@ jobs:
 
   closure:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: images
+    needs: [images, evaluation]
     runs-on: ubuntu-latest
     permissions:
       contents: read
