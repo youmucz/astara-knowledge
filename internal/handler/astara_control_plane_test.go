@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
 
 func astaraTestEngine(t *testing.T) *gin.Engine {
@@ -22,10 +24,23 @@ func astaraTestEngine(t *testing.T) *gin.Engine {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&types.Tenant{}, &types.KnowledgeBase{}); err != nil {
+	if err := db.AutoMigrate(&types.Tenant{}, &types.KnowledgeBase{}, &types.Model{}); err != nil {
 		t.Fatal(err)
 	}
-	h := NewAstaraControlPlaneHandler(db)
+	// The control-plane KB creation resolves the default embedding model;
+	// seed a builtin default so the creation path is exercisable.
+	if err := db.Create(&types.Model{
+		ID:        "builtin-embedding-default",
+		TenantID:  types.DefaultBuiltinModelTenantID,
+		Name:      "bge-m3",
+		Type:      types.ModelTypeEmbedding,
+		IsDefault: true,
+		IsBuiltin: true,
+		Status:    types.ModelStatusActive,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	h := NewAstaraControlPlaneHandler(db, &stubKnowledgeBaseService{db: db}, nil)
 	r := gin.New()
 	g := r.Group("/api/v1/astara", h.Authenticate)
 	g.GET("/tenants/by-external-id", h.FindTenant)
@@ -100,4 +115,20 @@ func TestAstaraControlPlaneAuthAndIdempotentWireContract(t *testing.T) {
 	if lookup.Code != http.StatusOK || decodeAstaraResource(t, lookup).ID != kb.ID {
 		t.Fatalf("kb lookup mismatch: %d %s", lookup.Code, lookup.Body.String())
 	}
+}
+
+// stubKnowledgeBaseService covers the astara control-plane creation path in
+// handler tests: it persists the KB row and skips the heavier pipeline
+// wiring that the service performs in the full container. The embedded
+// interface supplies every other method (nil → panic if ever reached).
+type stubKnowledgeBaseService struct {
+	interfaces.KnowledgeBaseService
+	db *gorm.DB
+}
+
+func (s *stubKnowledgeBaseService) CreateKnowledgeBase(ctx context.Context, kb *types.KnowledgeBase) (*types.KnowledgeBase, error) {
+	if err := s.db.WithContext(ctx).Create(kb).Error; err != nil {
+		return nil, err
+	}
+	return kb, nil
 }

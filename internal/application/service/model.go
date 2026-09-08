@@ -96,10 +96,25 @@ func (s *modelService) resolveWeKnoraCloudCredentials(ctx context.Context, param
 // CreateModel creates a new model in the repository
 // For local models, it initiates an asynchronous download process
 // Remote models are immediately set to active status
+
+// ensureKnowledgeQAAuthority enforces the Plane-owned KnowledgeQA authority:
+// the only KnowledgeQA mutation the provider accepts is the reserved
+// plane-owned row maintained by the closed push contract.
+func ensureKnowledgeQAAuthority(model *types.Model) error {
+	if model == nil || model.Type != types.ModelTypeKnowledgeQA {
+		return nil
+	}
+	if model.ID == types.PlaneOwnedKnowledgeQAModelID && model.ManagedBy == types.PlaneManagedBy {
+		return nil
+	}
+	return apperrors.NewForbiddenError("KnowledgeQA model configuration is owned by Plane")
+}
+
 func (s *modelService) CreateModel(ctx context.Context, model *types.Model) error {
 	logger.Infof(ctx, "Creating model: %s, type: %s, source: %s", model.Name, model.Type, model.Source)
-
-	// Handle remote models (e.g., OpenAI, Azure)
+	if err := ensureKnowledgeQAAuthority(model); err != nil {
+		return err
+	}
 	if model.Source == types.ModelSourceRemote {
 		logger.Info(ctx, "Remote model detected, setting status to active")
 		model.Status = types.ModelStatusActive
@@ -227,6 +242,9 @@ func (s *modelService) ListModels(ctx context.Context) ([]*types.Model, error) {
 func (s *modelService) UpdateModel(ctx context.Context, model *types.Model) error {
 	logger.Info(ctx, "Start updating model")
 	logger.Infof(ctx, "Updating model ID: %s, name: %s", model.ID, model.Name)
+	if err := ensureKnowledgeQAAuthority(model); err != nil {
+		return err
+	}
 
 	// Built-in models are platform-wide. Tenant administrators may view them,
 	// but only a system administrator may change their shared configuration.
@@ -279,6 +297,10 @@ func (s *modelService) UpdateModelCredentials(
 	}
 	if existing == nil {
 		return nil, ErrModelNotFound
+	}
+	if existing.Type == types.ModelTypeKnowledgeQA &&
+		!(existing.ID == types.PlaneOwnedKnowledgeQAModelID && existing.ManagedBy == types.PlaneManagedBy) {
+		return nil, apperrors.NewForbiddenError("KnowledgeQA model credentials are owned by Plane")
 	}
 	if existing.IsBuiltin && !types.IsSystemAdminFromContext(ctx) {
 		return nil, apperrors.NewForbiddenError(
@@ -369,6 +391,10 @@ func (s *modelService) DeleteModel(ctx context.Context, id string) error {
 	}
 	if existingModel == nil {
 		return ErrModelNotFound
+	}
+	if existingModel.Type == types.ModelTypeKnowledgeQA &&
+		!(existingModel.ID == types.PlaneOwnedKnowledgeQAModelID && existingModel.ManagedBy == types.PlaneManagedBy) {
+		return apperrors.NewForbiddenError("KnowledgeQA model configuration is owned by Plane")
 	}
 	if existingModel.IsBuiltin {
 		logger.Warnf(ctx, "Attempted to delete builtin model: %s", id)

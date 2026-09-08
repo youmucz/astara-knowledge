@@ -81,7 +81,8 @@ func setupPresignedTestServer(t *testing.T) (engine *gin.Engine, baseDir string,
 	baseDir = t.TempDir()
 
 	tenant := &types.Tenant{
-		ID: 1,
+		ID:     1,
+		Status: "active",
 		StorageEngineConfig: &types.StorageEngineConfig{
 			DefaultProvider: "local",
 			Local:           &types.LocalEngineConfig{},
@@ -127,6 +128,42 @@ func writeTestFile(t *testing.T, baseDir, relPath, content string) string {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	return "local://" + relPath
+}
+
+func TestPresignedFileRejectsInvalidTenantState(t *testing.T) {
+	t.Setenv("SYSTEM_AES_KEY", "weknora-test-aes-key-32bytes!!!")
+	for _, tenant := range []*types.Tenant{nil, {ID: 1, Status: "inactive"}, {ID: 1}, {ID: 2, Status: "active"}} {
+		engine := gin.New()
+		service := &stubTenantService{get: func(context.Context, uint64) (*types.Tenant, error) { return tenant, nil }}
+		engine.GET("/api/v1/files/presigned", presignedFileHandler(service, t.TempDir()))
+		signed, err := secutils.SignFileURL("http://example.test", "local://1/file.png", 1, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w := httptest.NewRecorder()
+		engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, signed, nil))
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("invalid tenant accepted: status %d", w.Code)
+		}
+		if w.Header().Get("Cache-Control") != "private, no-store" {
+			t.Fatal("denial cacheable")
+		}
+	}
+}
+
+func TestPresignedFileDoesNotPermitCacheReuse(t *testing.T) {
+	engine, baseDir, signURL := setupPresignedTestServer(t)
+	path := writeTestFile(t, baseDir, "1/private.png", "private-bytes")
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		w := httptest.NewRecorder()
+		engine.ServeHTTP(w, httptest.NewRequest(method, signURL(path, 1, time.Minute), nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s status: %d", method, w.Code)
+		}
+		if got := w.Header().Get("Cache-Control"); got != "private, no-store" {
+			t.Fatalf("%s permits caching: %q", method, got)
+		}
+	}
 }
 
 func TestPresignedFile_HEAD_Returns200WithoutBody(t *testing.T) {

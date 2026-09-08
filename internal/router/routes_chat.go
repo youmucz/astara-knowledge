@@ -5,6 +5,7 @@ import (
 
 	"github.com/Tencent/WeKnora/internal/handler"
 	"github.com/Tencent/WeKnora/internal/handler/session"
+	"github.com/Tencent/WeKnora/internal/middleware"
 )
 
 // RegisterMessageRoutes 注册消息相关的路由。
@@ -105,18 +106,18 @@ func RegisterChatRoutes(r *gin.RouterGroup, handler *session.Handler, g *rbacGua
 	// needs the explicit chat capability unless it has full tenant access.
 	knowledgeChat := g.apiKeyGroup(r.Group("/knowledge-chat", g.Viewer()), apiKeyChat(apiKeyFullAccess()))
 	{
-		knowledgeChat.POST("/:session_id", handler.KnowledgeQA)
+		knowledgeChat.POST("/:session_id", middleware.RequireNativeSourceRoute(), handler.KnowledgeQA)
 	}
 
 	// Agent-based chat
 	agentChat := g.apiKeyGroup(r.Group("/agent-chat", g.Viewer()), apiKeyChat(apiKeyFullAccess()))
 	{
-		agentChat.POST("/:session_id", handler.AgentQA)
+		agentChat.POST("/:session_id", middleware.RequireNativeSourceRoute(), handler.AgentQA)
 	}
 
 	// 新增知识检索接口，不需要session_id
 	knowledgeSearch := g.apiKeyGroup(r.Group("/knowledge-search", g.Viewer()), apiKeyRetrieve(apiKeyFullAccess()))
 	{
-		knowledgeSearch.POST("", handler.SearchKnowledge)
+		knowledgeSearch.POST("", middleware.RequireNativeSourceRoute(), handler.SearchKnowledge)
 	}
 }

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -110,7 +111,7 @@ func (h *AstaraIdentityExchangeHandler) verifyAssertion(tokenString string) (*id
 				return nil, errors.New("unexpected signing method")
 			}
 			return []byte(secret), nil
-		}, jwt.WithExpirationRequired(), jwt.WithAudience(astaraIdentityAudience), jwt.WithIssuer(astaraIdentityIssuer))
+		}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithIssuedAt(), jwt.WithExpirationRequired(), jwt.WithAudience(astaraIdentityAudience), jwt.WithIssuer(astaraIdentityIssuer))
 		if err == nil && token.Valid {
 			parsed = token
 			parseErr = nil
@@ -174,7 +175,7 @@ func (h *AstaraIdentityExchangeHandler) verifyAssertion(tokenString string) (*id
 	if err != nil || expiresAt == nil {
 		return nil, time.Time{}, errors.New("assertion claims incomplete")
 	}
-	if expiresAt.Sub(issuedAt.Time) > astaraAssertionMaxLifetime {
+	if !expiresAt.After(issuedAt.Time) || expiresAt.Sub(issuedAt.Time) > astaraAssertionMaxLifetime {
 		return nil, time.Time{}, errors.New("assertion lifetime exceeds the allowed window")
 	}
 	return assertion, expiresAt.Time, nil
@@ -206,7 +207,7 @@ func (h *AstaraIdentityExchangeHandler) consumeJTI(c *gin.Context, assertion *id
 func (h *AstaraIdentityExchangeHandler) resolveTenant(c *gin.Context, assertion *identityAssertion) (*types.Tenant, error) {
 	tenantID, _ := strconv.ParseUint(assertion.ProviderTenantID, 10, 64)
 	var tenant types.Tenant
-	if err := h.db.WithContext(c).First(&tenant, tenantID).Error; err != nil {
+	if err := h.db.WithContext(c.Request.Context()).First(&tenant, tenantID).Error; err != nil {
 		return nil, errors.New("tenant is not available")
 	}
 	if tenant.ExternalSystem == nil || tenant.ExternalID == nil ||
@@ -223,7 +224,7 @@ func (h *AstaraIdentityExchangeHandler) resolveTenant(c *gin.Context, assertion 
 // identity. Native accounts with a colliding email are never taken over.
 func (h *AstaraIdentityExchangeHandler) ensureShadowUser(c *gin.Context, assertion *identityAssertion, tenant *types.Tenant) (*types.User, error) {
 	var user types.User
-	err := h.db.WithContext(c).Where("external_system = ? AND external_id = ?", astaraExternalSystem, assertion.Subject).First(&user).Error
+	err := h.db.WithContext(c.Request.Context()).Where("external_system = ? AND external_id = ?", astaraExternalSystem, assertion.Subject).First(&user).Error
 	if err == nil {
 		return &user, nil
 	}
@@ -234,7 +235,7 @@ func (h *AstaraIdentityExchangeHandler) ensureShadowUser(c *gin.Context, asserti
 	// Email conflict: a native WeKnora account already owns this address.
 	// Fail closed — the shadow identity must not hijack it.
 	var existing types.User
-	if err := h.db.WithContext(c).Where("email = ?", assertion.Email).First(&existing).Error; err == nil {
+	if err := h.db.WithContext(c.Request.Context()).Where("email = ?", assertion.Email).First(&existing).Error; err == nil {
 		return nil, errors.New("identity conflict")
 	}
 
@@ -253,10 +254,10 @@ func (h *AstaraIdentityExchangeHandler) ensureShadowUser(c *gin.Context, asserti
 		TenantID:       tenant.ID,
 		IsActive:       true,
 	}
-	if err := h.db.WithContext(c).Create(&user).Error; err != nil {
+	if err := h.db.WithContext(c.Request.Context()).Create(&user).Error; err != nil {
 		// A concurrent exchange can win the unique race; converge onto it.
 		var winner types.User
-		if readErr := h.db.WithContext(c).Where("external_system = ? AND external_id = ?", astaraExternalSystem, assertion.Subject).First(&winner).Error; readErr == nil {
+		if readErr := h.db.WithContext(c.Request.Context()).Where("external_system = ? AND external_id = ?", astaraExternalSystem, assertion.Subject).First(&winner).Error; readErr == nil {
 			return &winner, nil
 		}
 		return nil, errors.New("shadow user provisioning failed")
@@ -267,18 +268,15 @@ func (h *AstaraIdentityExchangeHandler) ensureShadowUser(c *gin.Context, asserti
 // embeddedUsername derives a stable, non-guessable username for a shadow
 // user. It is display-only: shadow users never log in directly.
 func embeddedUsername(subject string) string {
-	digest := hex.EncodeToString([]byte(subject))
-	if len(digest) > 16 {
-		digest = digest[:16]
-	}
-	return "plane-" + digest
+	digest := sha256.Sum256([]byte(subject))
+	return "plane-" + hex.EncodeToString(digest[:16])
 }
 
 // repairMembership creates or repairs the tenant membership with the
 // assertion's role and permission revision. Plane stays authoritative.
 func (h *AstaraIdentityExchangeHandler) repairMembership(c *gin.Context, user *types.User, tenant *types.Tenant, assertion *identityAssertion) error {
 	var member types.TenantMember
-	err := h.db.WithContext(c).Where("user_id = ? AND tenant_id = ?", user.ID, tenant.ID).First(&member).Error
+	err := h.db.WithContext(c.Request.Context()).Where("user_id = ? AND tenant_id = ?", user.ID, tenant.ID).First(&member).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		member = types.TenantMember{
 			UserID:             user.ID,
@@ -288,7 +286,7 @@ func (h *AstaraIdentityExchangeHandler) repairMembership(c *gin.Context, user *t
 			PermissionRevision: assertion.PermissionRevision,
 			JoinedAt:           time.Now().UTC(),
 		}
-		return h.db.WithContext(c).Create(&member).Error
+		return h.db.WithContext(c.Request.Context()).Create(&member).Error
 	}
 	if err != nil {
 		return err
@@ -299,7 +297,7 @@ func (h *AstaraIdentityExchangeHandler) repairMembership(c *gin.Context, user *t
 		member.Role = types.TenantRole(assertion.Role)
 		member.Status = types.TenantMemberStatusActive
 		member.PermissionRevision = assertion.PermissionRevision
-		return h.db.WithContext(c).Model(&types.TenantMember{}).Where("id = ?", member.ID).Updates(map[string]interface{}{
+		return h.db.WithContext(c.Request.Context()).Model(&types.TenantMember{}).Where("id = ?", member.ID).Updates(map[string]interface{}{
 			"role":                member.Role,
 			"status":              member.Status,
 			"permission_revision": member.PermissionRevision,
@@ -365,6 +363,8 @@ func (h *AstaraIdentityExchangeHandler) Exchange(c *gin.Context) {
 	// Workspace binding.
 	if err := h.sessions.RevokeForUser(c.Request.Context(), user.ID, 0); err != nil {
 		logger.Warnf(c.Request.Context(), "[astara-identity] prior session revocation failed for user %s: %v", user.ID, err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "identity exchange unavailable"})
+		return
 	}
 
 	token, sessionExpiresAt, err := h.sessions.Mint(c.Request.Context(), user, tenant.ID, assertion.PermissionRevision)
@@ -401,7 +401,7 @@ func (h *AstaraIdentityExchangeHandler) Revoke(c *gin.Context) {
 		tenantID = parsed
 	}
 	var user types.User
-	err := h.db.WithContext(c).Where("external_system = ? AND external_id = ?", astaraExternalSystem, request.ExternalUserID).First(&user).Error
+	err := h.db.WithContext(c.Request.Context()).Where("external_system = ? AND external_id = ?", astaraExternalSystem, request.ExternalUserID).First(&user).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		// Unknown shadow identity: nothing to revoke. 204 keeps the caller
 		// idempotent without revealing whether the identity exists.

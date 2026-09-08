@@ -7,6 +7,22 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// RegisterAstaraSearchAuthorizedRoute uses an explicit document scope and service authentication.
+func RegisterAstaraSearchAuthorizedRoute(r *gin.RouterGroup, h *handler.AstaraSearchAuthorizedHandler) {
+	if h == nil {
+		return
+	}
+	r.Group("/astara", handler.AstaraServiceAuth).POST("/search-authorized", h.SearchAuthorized)
+}
+
+// RegisterAstaraReadAuthorizedRoute uses service authentication, not user JWT.
+func RegisterAstaraReadAuthorizedRoute(r *gin.RouterGroup, h *handler.AstaraReadAuthorizedHandler) {
+	if h == nil {
+		return
+	}
+	r.Group("/astara", handler.AstaraServiceAuth).POST("/read-authorized", h.ReadAuthorized)
+}
+
 func RegisterAstaraControlPlaneRoutes(r *gin.RouterGroup, h *handler.AstaraControlPlaneHandler) {
 	if h == nil {
 		return
@@ -58,6 +74,32 @@ func astaraRouteServiceAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		handler.AstaraServiceAuth(c)
 	}
+}
+
+// RegisterAstaraAnswerAuthorizedRoute wires the pre-authorized stateless RAG
+// answer endpoint behind the same service authentication as the control plane.
+// The handler is nil-safe: an unwired dependency removes the route instead of
+// exposing a panic path.
+func RegisterAstaraAnswerAuthorizedRoute(r *gin.RouterGroup, h *handler.AstaraAnswerAuthorizedHandler) {
+	if h == nil {
+		return
+	}
+	// Generation binds the Plane-owned KnowledgeQA configuration: without an
+	// applied push the handler fails closed before any retrieval or
+	// generation, so the route itself is always wired.
+	r.Group("/astara", handler.AstaraServiceAuth).POST("/answer-authorized", h.AnswerAuthorized)
+}
+
+// RegisterAstaraKnowledgeModelConfigRoute wires the closed Plane→provider
+// KnowledgeQA model-configuration push (upsert/revoke/redacted read-back).
+func RegisterAstaraKnowledgeModelConfigRoute(r *gin.RouterGroup, h *handler.AstaraKnowledgeModelConfigHandler) {
+	if h == nil {
+		return
+	}
+	group := r.Group("/astara", handler.AstaraServiceAuth)
+	group.POST("/knowledge-model-config", h.Upsert)
+	group.DELETE("/knowledge-model-config", h.Revoke)
+	group.GET("/knowledge-model-config", h.ReadBack)
 }
 
 // RegisterAstaraSystemRoutes omits the sandbox probe and global execution

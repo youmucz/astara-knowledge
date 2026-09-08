@@ -37,7 +37,19 @@ type identityTestEnv struct {
 	session interfaces.EmbeddedSessionService
 }
 
+type failingRevocationSession struct {
+	interfaces.EmbeddedSessionService
+}
+
+func (s failingRevocationSession) RevokeForUser(ctx context.Context, userID string, tenantID uint64) error {
+	return fmt.Errorf("revocation unavailable")
+}
+
 func newIdentityTestEnv(t *testing.T) *identityTestEnv {
+	return newIdentityTestEnvWithRevocation(t, false)
+}
+
+func newIdentityTestEnvWithRevocation(t *testing.T, fail bool) *identityTestEnv {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	t.Setenv(astaraIdentitySecretEnv, testIdentitySecret)
@@ -64,7 +76,11 @@ func newIdentityTestEnv(t *testing.T) *identityTestEnv {
 	userRepo := repository.NewUserRepository(db)
 	tokenRepo := repository.NewAuthTokenRepository(db)
 	sessionService := service.NewEmbeddedSessionService(userRepo, tokenRepo)
-	handlerInstance := NewAstaraIdentityExchangeHandler(db, sessionService, redisClient)
+	var sessions interfaces.EmbeddedSessionService = sessionService
+	if fail {
+		sessions = failingRevocationSession{sessionService}
+	}
+	handlerInstance := NewAstaraIdentityExchangeHandler(db, sessions, redisClient)
 
 	engine := gin.New()
 	group := engine.Group("/api/v1/astara")
@@ -174,6 +190,61 @@ func sessionCookieFrom(t *testing.T, recorder *httptest.ResponseRecorder) *http.
 	cookies := (&http.Response{Header: header}).Cookies()
 	require.NotEmpty(t, cookies)
 	return cookies[0]
+}
+
+func TestExchangeRefusesSessionWhenPriorRevocationFails(t *testing.T) {
+	env := newIdentityTestEnvWithRevocation(t, true)
+	seedExternalTenant(t, env, 7, "ws-1")
+	recorder := postExchange(t, env, mintAssertion(t, assertionOptions{
+		subject: "plane-user-1", email: "member@plane.test",
+		workspaceID: "ws-1", tenantID: "7", role: "contributor", revision: "rev-1", jti: "jti-fail",
+	}))
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	require.Empty(t, recorder.Header().Values("Set-Cookie"))
+	var count int64
+	require.NoError(t, env.db.Model(&types.AuthToken{}).Count(&count).Error)
+	require.Zero(t, count)
+}
+
+func TestExchangeRejectsFutureIssuedAndWrongAlgorithmAssertions(t *testing.T) {
+	for _, mode := range []string{"future-issued", "HS384"} {
+		t.Run(mode, func(t *testing.T) {
+			env := newIdentityTestEnv(t)
+			seedExternalTenant(t, env, 7, "ws-1")
+			raw := mintAssertion(t, assertionOptions{subject: "user", email: "u@plane.test", workspaceID: "ws-1", tenantID: "7", role: "contributor", revision: "rev-1", jti: "jti"})
+			token, _, err := jwt.NewParser().ParseUnverified(raw, jwt.MapClaims{})
+			require.NoError(t, err)
+			claims := token.Claims.(jwt.MapClaims)
+			method := jwt.SigningMethodHS256
+			if mode == "HS384" {
+				method = jwt.SigningMethodHS384
+			} else {
+				claims["iat"] = time.Now().Add(10 * time.Second).Unix()
+				claims["exp"] = time.Now().Add(20 * time.Second).Unix()
+			}
+			signed, err := jwt.NewWithClaims(method, claims).SignedString([]byte(testIdentitySecret))
+			require.NoError(t, err)
+			recorder := postExchange(t, env, signed)
+			require.Equal(t, http.StatusUnauthorized, recorder.Code)
+			require.Empty(t, recorder.Header().Values("Set-Cookie"))
+		})
+	}
+}
+
+func TestExchangeSubjectsWithSamePrefixRemainDistinct(t *testing.T) {
+	env := newIdentityTestEnv(t)
+	seedExternalTenant(t, env, 7, "ws-1")
+	for _, suffix := range []string{"one", "two"} {
+		recorder := postExchange(t, env, mintAssertion(t, assertionOptions{
+			subject: "same-prefix-" + suffix, email: suffix + "@plane.test",
+			workspaceID: "ws-1", tenantID: "7", role: "contributor", revision: "rev-1", jti: "jti-" + suffix,
+		}))
+		require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	}
+	var users []types.User
+	require.NoError(t, env.db.Find(&users).Error)
+	require.Len(t, users, 2)
+	require.NotEqual(t, users[0].Username, users[1].Username)
 }
 
 func TestExchangeHappyPathProvisionsShadowIdentityAndSession(t *testing.T) {

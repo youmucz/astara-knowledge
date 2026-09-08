@@ -574,9 +574,50 @@ func (p *PluginSearch) searchSingleTarget(
 		"hit_count":   len(res),
 	})
 	mu.Lock()
-	*results = append(*results, res...)
+	*results = append(*results, restrictResultsToDocumentTarget(t, res)...)
 	mu.Unlock()
 	return nil
+}
+
+func resultWithinSearchTargets(targets types.SearchTargets, result *types.SearchResult) bool {
+	if result == nil {
+		return false
+	}
+	for _, target := range targets {
+		if target == nil || target.KnowledgeBaseID != result.KnowledgeBaseID {
+			continue
+		}
+		if target.Type == types.SearchTargetTypeKnowledgeBase {
+			return true
+		}
+		if target.Type == types.SearchTargetTypeKnowledge {
+			for _, id := range target.KnowledgeIDs {
+				if id != "" && id == result.KnowledgeID {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// restrictResultsToDocumentTarget fences provider/index results before rerank
+// or context construction. A stale index cannot widen a document target.
+func restrictResultsToDocumentTarget(target *types.SearchTarget, results []*types.SearchResult) []*types.SearchResult {
+	if target.Type != types.SearchTargetTypeKnowledge {
+		return results
+	}
+	allowed := make(map[string]bool, len(target.KnowledgeIDs))
+	for _, id := range target.KnowledgeIDs {
+		allowed[id] = id != ""
+	}
+	bounded := make([]*types.SearchResult, 0, len(results))
+	for _, result := range results {
+		if result != nil && allowed[result.KnowledgeID] && result.KnowledgeBaseID == target.KnowledgeBaseID {
+			bounded = append(bounded, result)
+		}
+	}
+	return bounded
 }
 
 // searchWebIfEnabled executes web search when enabled and returns converted results

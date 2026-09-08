@@ -164,8 +164,15 @@ func (p *PluginSearchEntity) OnEvent(ctx context.Context,
 	}
 	var entityResults []*types.SearchResult
 	for _, chunk := range chunks {
+		if chunk == nil || knowledgeMap[chunk.KnowledgeID] == nil {
+			continue
+		}
 		searchResult := chunk2SearchResult(chunk, knowledgeMap[chunk.KnowledgeID])
-		entityResults = append(entityResults, searchResult)
+		// Graph edges are not authority: stale or corrupt edges must not
+		// introduce documents outside the resolved retrieval targets.
+		if resultWithinSearchTargets(chatManage.SearchTargets, searchResult) {
+			entityResults = append(entityResults, searchResult)
+		}
 	}
 	searchutil.EnrichSearchResultsImageInfo(ctx, p.chunkRepo, types.MustTenantIDFromContext(ctx), entityResults)
 	chatManage.SearchResult = append(chatManage.SearchResult, entityResults...)

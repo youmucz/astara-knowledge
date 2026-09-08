@@ -823,6 +823,8 @@ CREATE TABLE IF NOT EXISTS vector_stores (
 );
 CREATE TABLE IF NOT EXISTS knowledge_bases (
     id VARCHAR(36) PRIMARY KEY,
+    external_system VARCHAR(64),
+    external_id VARCHAR(255),
     name VARCHAR(255) NOT NULL,
     description TEXT,
     tenant_id INTEGER NOT NULL,

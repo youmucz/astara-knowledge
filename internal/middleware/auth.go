@@ -61,6 +61,11 @@ var noAuthAPI = map[string][]string{
 	// before GET to validate Content-Type / Content-Length when rendering
 	// image previews — both verbs must be allowed for image links to work.
 	"/api/v1/files/presigned": {"GET", "HEAD"},
+	// The astara private control-plane surface carries its own closed
+	// bearer-secret authentication (AstaraServiceAuth / identity exchange)
+	// and never uses WeKnora user credentials; the global user Auth must
+	// not intercept it.
+	"/api/v1/astara*": {"GET", "POST", "PUT", "DELETE"},
 }
 
 // 检查请求是否在无需认证的API列表中
@@ -865,7 +870,7 @@ func authenticateEmbeddedSession(
 	ctx := c.Request.Context()
 	cookie, _ := c.Cookie(embeddedSessionCookieName())
 	info, err := sessions.Validate(ctx, cookie)
-	if err != nil || info == nil {
+	if err != nil || info == nil || info.User == nil || info.User.ID == "" || !info.User.IsActive || info.TenantID == 0 || strings.TrimSpace(info.PermissionRevision) == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": "Unauthorized: embedded session is invalid or expired",
 			"code":  "SESSION_EXPIRED",

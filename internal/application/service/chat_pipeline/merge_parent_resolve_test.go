@@ -10,9 +10,30 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 )
 
+func TestResolveParentChunksDoesNotImportAnotherDocument(t *testing.T) {
+	for _, kind := range []string{string(types.ChunkTypeText), string(types.ChunkTypeImageOCR)} {
+		t.Run(kind, func(t *testing.T) {
+			parentKind := types.ChunkTypeParentText
+			if kind == string(types.ChunkTypeImageOCR) {
+				parentKind = types.ChunkTypeText
+			}
+			repo := &expandChunkRepo{chunks: map[string]*types.Chunk{
+				"foreign": {ID: "foreign", KnowledgeID: "private-doc", ChunkType: parentKind, Content: "private parent"},
+			}}
+			plugin := &PluginMerge{chunkRepo: repo}
+			ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(1))
+			hit := &types.SearchResult{ID: "allowed", KnowledgeID: "allowed-doc", ChunkType: kind, ParentChunkID: "foreign", Content: "allowed content"}
+			got := plugin.resolveParentChunks(ctx, &types.ChatManage{}, []*types.SearchResult{hit})
+			if len(got) != 1 || got[0].Content != "allowed content" {
+				t.Fatalf("foreign parent crossed scope: %+v", got)
+			}
+		})
+	}
+}
+
 func TestResolveParentChunksUsesCurrentContentAndImageURLs(t *testing.T) {
 	parent := &types.Chunk{
-		ID: "parent", ChunkType: types.ChunkTypeParentText, ChunkIndex: 7,
+		ID: "parent", KnowledgeID: "doc", ChunkType: types.ChunkTypeParentText, ChunkIndex: 7,
 		Content: "manually inserted prefix\n\n![one](u1)\n\nparent body\n\n![two](u2)",
 	}
 	imageInfo, err := json.Marshal([]types.ImageInfo{{URL: "u2", OCRText: "two"}})
@@ -61,11 +82,11 @@ func TestResolveImageChunkKeepsGrandparentContextWithoutCoordinateSlicing(t *tes
 	repo := &expandChunkRepo{
 		chunks: map[string]*types.Chunk{
 			"text": {
-				ID: "text", ParentChunkID: "parent", ChunkType: types.ChunkTypeText, ChunkIndex: 4,
+				ID: "text", KnowledgeID: "doc", ParentChunkID: "parent", ChunkType: types.ChunkTypeText, ChunkIndex: 4,
 				Content: "current edited text child\n\n![matched](u1)", StartAt: 900, EndAt: 910,
 			},
 			"parent": {
-				ID: "parent", ChunkType: types.ChunkTypeParentText,
+				ID: "parent", KnowledgeID: "doc", ChunkType: types.ChunkTypeParentText,
 				Content: "grandparent context before\n\n![matched](u1)\n\ngrandparent context after\n\n![sibling](u2)",
 				StartAt: 0, EndAt: 100,
 			},

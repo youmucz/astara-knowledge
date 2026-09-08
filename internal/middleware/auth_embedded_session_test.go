@@ -109,6 +109,32 @@ func TestEmbeddedSessionCookieChannelAuthenticatesTenantPinnedRequests(t *testin
 	assert.Contains(t, recorder.Body.String(), `"role":"contributor"`)
 }
 
+func TestEmbeddedSessionRejectsIncompletePrincipal(t *testing.T) {
+	for _, mode := range []string{"nil-user", "inactive", "empty-id", "zero-tenant", "empty-revision"} {
+		t.Run(mode, func(t *testing.T) {
+			info := &interfaces.EmbeddedSessionInfo{User: &types.User{ID: "user-1", IsActive: true}, TenantID: 42, PermissionRevision: "rev-9"}
+			switch mode {
+			case "nil-user":
+				info.User = nil
+			case "inactive":
+				info.User.IsActive = false
+			case "empty-id":
+				info.User.ID = ""
+			case "zero-tenant":
+				info.TenantID = 0
+			case "empty-revision":
+				info.PermissionRevision = ""
+			}
+			engine := embeddedAuthEngine(&fakeEmbeddedSessionService{info: info}, &types.Tenant{ID: 42, Status: "active"}, newFakeMemberService())
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/knowledge-bases", nil)
+			req.AddCookie(&http.Cookie{Name: "weknora_embedded_session", Value: "session-token"})
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, req)
+			require.Equal(t, http.StatusUnauthorized, recorder.Code)
+		})
+	}
+}
+
 func TestEmbeddedSessionRejectsStalePermissionRevision(t *testing.T) {
 	tenant := &types.Tenant{ID: 42, Status: "active"}
 	members := newFakeMemberService()

@@ -37,6 +37,19 @@ func (r *expandChunkRepo) ListChunksByID(
 	return chunks, nil
 }
 
+func TestExpandShortContextRejectsStaleChunkDocumentMapping(t *testing.T) {
+	repo := &expandChunkRepo{chunks: map[string]*types.Chunk{
+		"base": {ID: "base", KnowledgeID: "foreign", ChunkType: types.ChunkTypeText, Content: "private body"},
+	}}
+	plugin := &PluginMerge{chunkRepo: repo}
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(1))
+	result := &types.SearchResult{ID: "base", KnowledgeID: "allowed", ChunkType: string(types.ChunkTypeText), Content: "allowed body"}
+	got := plugin.expandShortContextWithNeighbors(ctx, &types.ChatManage{}, []*types.SearchResult{result})
+	if len(got) != 1 || got[0].Content != "allowed body" {
+		t.Fatal("chunk mapping drift imported private content")
+	}
+}
+
 func TestExpandShortContextKeepsSourceCoordinates(t *testing.T) {
 	repo := &expandChunkRepo{chunks: map[string]*types.Chunk{
 		"prev": {ID: "prev", KnowledgeID: "doc", ChunkType: types.ChunkTypeText, Content: "edited previous body", NextChunkID: "base"},

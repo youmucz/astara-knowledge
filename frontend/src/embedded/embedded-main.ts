@@ -9,7 +9,7 @@
  */
 
 import { createApp, type App as VueApp, type Component } from 'vue'
-import { createPinia, type Pinia } from 'pinia'
+import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import TDesign, { MessagePlugin } from 'tdesign-vue-next'
 import 'tdesign-vue-next/es/style/index.css'
 import '@/assets/fonts.css'
@@ -136,7 +136,12 @@ export async function mount(
   portal.setAttribute('theme-mode', theme)
 
   // 1. Exchange the one-time assertion for the HttpOnly session cookie and
-  //    hydrate the in-memory auth store before any view renders.
+  //    hydrate the in-memory auth store before any view renders. The auth
+  //    store lives in Pinia, so the Pinia instance must be active BEFORE the
+  //    exchange runs — creating it afterwards made every mount fail with
+  //    "getActivePinia() was called but there was no active Pinia".
+  const pinia = createPinia()
+  setActivePinia(pinia)
   const exchange = await bootstrapEmbeddedSession(props.exchange.assertion)
   if (!exchange.ok) {
     setEmbeddedSessionExpiredHandler(null)
@@ -147,7 +152,6 @@ export async function mount(
   // 2. Build the app: knowledge-only routes under a memory history that the
   //    host drives; theme/capabilities flow through reactive root props.
   const router = createEmbeddedRouter()
-  const pinia = createPinia()
   const rootProps = { theme, capabilities: props.capabilities }
   const app = createApp(EmbeddedApp as unknown as Component, rootProps)
   app.use(TDesign)

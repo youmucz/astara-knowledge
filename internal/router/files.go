@@ -306,6 +306,7 @@ func serveFilesWithResources(
 	// /embed/.../files handler.
 	r.GET(
 		"/files",
+		middleware.RequireNativeSourceRoute(),
 		middleware.AllowFileServeAPIKey(),
 		newFileServeHandler(globalFileService, storageResolver, resourceCatalog),
 	)
@@ -405,6 +406,7 @@ func serveKBScopedFiles(
 		apiKeyRetrieve(apiKeyFullAccess()),
 		middleware.AllowFileServeAPIKey(),
 		g.Viewer(),
+		middleware.RequireNativeSourceRoute(),
 		g.KBAccessRead("id"),
 		newKBScopedFileServeHandlerWithResources(
 			tenantService,
@@ -664,6 +666,7 @@ func serveMessageScopedFiles(
 		"/sessions/:id/messages/:message_id/files",
 		apiKeyChat(apiKeyFullAccess()),
 		g.Viewer(),
+		middleware.RequireNativeSourceRoute(),
 		newMessageScopedFileServeHandler(
 			messageService,
 			agentShareService,
@@ -751,6 +754,11 @@ func presignedFileHandler(tenantService interfaces.TenantService, absDir string,
 			return
 		}
 
+		if tenant == nil || tenant.ID != tenantID || tenant.Status != "active" {
+			c.Header("Cache-Control", "private, no-store")
+			c.Status(http.StatusNotFound)
+			return
+		}
 		backendID, provider := parseStorageTarget(filePath)
 		fileSvc, resolvedProvider, err := resolveFileService(ctx, tenant, backendID, provider, absDir, storageResolver)
 		if err != nil {
@@ -774,7 +782,7 @@ func presignedFileHandler(tenantService interfaces.TenantService, absDir string,
 		}
 
 		contentType, inline := secutils.SafeContentTypeByFilename(filePath)
-		streamStoredFile(c, reader, contentType, inline, "public, max-age=86400", "/files/presigned")
+		streamStoredFile(c, reader, contentType, inline, "private, no-store", "/files/presigned")
 	}
 }
 
@@ -795,6 +803,7 @@ func servePresignedPreview(r *gin.Engine, cfg *config.Config, storageResolver in
 	// API-key principals (deferring to that absent gate), which would let
 	// any valid key past the Admin check. Deny API keys explicitly first.
 	r.GET("/api/v1/files/presigned-preview",
+		middleware.RequireNativeSourceRoute(),
 		middleware.DenyAPIKeyPrincipal(),
 		middleware.RequireRole(types.TenantRoleAdmin, cfg),
 		func(c *gin.Context) {

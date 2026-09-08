@@ -168,6 +168,17 @@ type ModelParameters struct {
 // "value too long for type" failure at INSERT time.
 const ModelIDMaxLen = 64
 
+// PlaneOwnedKnowledgeQAModelID is the reserved global model-row identity for
+// the KnowledgeQA vendor configuration pushed by Plane. The row is
+// tenant-global (tenant 0, builtin-visible) and exclusively maintained
+// through the closed astara model-config push contract.
+const PlaneOwnedKnowledgeQAModelID = "astara-plane-knowledge-qa"
+
+// PlaneManagedBy marks a model row whose lifecycle is owned by the Plane
+// model-configuration push; the provider model service rejects every other
+// origin mutating it.
+const PlaneManagedBy = "plane"
+
 // DefaultBuiltinModelTenantID is the tenant id that built-in models are
 // assigned to when YAML does not specify one. Kept in sync with the seed
 // value of tenants_id_seq in migrations/versioned/000000_init.up.sql

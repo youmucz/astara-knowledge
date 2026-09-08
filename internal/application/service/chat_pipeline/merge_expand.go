@@ -54,7 +54,6 @@ func (p *PluginMerge) expandShortContextWithNeighbors(
 		baseIDsSet[r.ID] = struct{}{}
 		pipelineInfo(ctx, "Merge", "need_expand", map[string]interface{}{
 			"chunk_id":   r.ID,
-			"content":    r.Content,
 			"chunk_type": r.ChunkType,
 			"len":        runeLen(r.Content),
 		})
@@ -113,7 +112,6 @@ func (p *PluginMerge) expandShortContextWithNeighbors(
 				chunkMap[chunk.ID] = chunk
 				pipelineInfo(ctx, "Merge", "expand_list_neighbor_success", map[string]interface{}{
 					"neighbor_chunk_id":   chunk.ID,
-					"neighbor_content":    chunk.Content,
 					"neighbor_chunk_type": chunk.ChunkType,
 					"neighbor_len":        runeLen(chunk.Content),
 				})
@@ -125,7 +123,7 @@ func (p *PluginMerge) expandShortContextWithNeighbors(
 		res := target.result
 		p.fetchChunksIfMissing(ctx, tenantID, chunkMap, res.ID)
 		baseChunk := chunkMap[res.ID]
-		if baseChunk == nil || baseChunk.Content == "" || baseChunk.ChunkType != types.ChunkTypeText {
+		if baseChunk == nil || baseChunk.KnowledgeID != res.KnowledgeID || baseChunk.Content == "" || baseChunk.ChunkType != types.ChunkTypeText {
 			continue
 		}
 
@@ -234,8 +232,6 @@ func (p *PluginMerge) expandShortContextWithNeighbors(
 			"next_ids":       nextIDs,
 			"before_len":     beforeLen,
 			"after_len":      runeLen(res.Content),
-			"base_content":   baseChunk.Content,
-			"after_content":  res.Content,
 			"chunk_type":     res.ChunkType,
 			"remaining_prev": prevCursor,
 			"remaining_next": nextCursor,

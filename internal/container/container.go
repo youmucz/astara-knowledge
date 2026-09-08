@@ -33,7 +33,6 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/Tencent/WeKnora/internal/agent/approval"
 	"github.com/Tencent/WeKnora/internal/application/repository"
 	dorisRepo "github.com/Tencent/WeKnora/internal/application/repository/retriever/doris"
 	elasticsearchRepoV7 "github.com/Tencent/WeKnora/internal/application/repository/retriever/elasticsearch/v7"
@@ -144,11 +143,11 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		must(container.Provide(initNeo4jClient))
 	}
 	must(container.Provide(stream.NewStreamManager))
-	if !knowledgeOnly {
-		logger.Debugf(ctx, "[Container] Initializing DuckDB...")
-		must(container.Provide(NewDuckDB))
-		logger.Debugf(ctx, "[Container] DuckDB registered")
-	}
+	// The RAG pipeline's data-analysis plugin needs the in-memory DuckDB;
+	// provide it in every profile.
+	logger.Debugf(ctx, "[Container] Initializing DuckDB...")
+	must(container.Provide(NewDuckDB))
+	logger.Debugf(ctx, "[Container] DuckDB registered")
 
 	// Data repositories layer
 	logger.Debugf(ctx, "[Container] Registering repositories...")
@@ -173,21 +172,24 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	}
 	must(container.Provide(repository.NewOrganizationRepository))
 	must(container.Provide(repository.NewKBShareRepository))
+	// The stateless RAG trio (search/answer/answer-authorized) runs in the
+	// knowledge-only profile too and depends on the session-backed retrieval
+	// pipeline, so the session/message repositories are always provided.
+	must(container.Provide(repository.NewSessionRepository))
+	must(container.Provide(repository.NewMessageRepository))
+	must(container.Provide(repository.NewMessageSuggestionRepository))
+	must(container.Provide(repository.NewTenantSandboxConfigRepository))
+	must(container.Provide(repository.NewTenantSkillRepository))
+	must(container.Provide(service.NewWebSearchStateService))
 	if !knowledgeOnly {
-		must(container.Provide(repository.NewSessionRepository))
-		must(container.Provide(repository.NewMessageRepository))
-		must(container.Provide(repository.NewMessageSuggestionRepository))
 		must(container.Provide(repository.NewMCPServiceRepository))
 		must(container.Provide(repository.NewMCPToolApprovalRepository))
 		must(container.Provide(repository.NewMCPOAuthRepository))
-		must(container.Provide(repository.NewTenantSandboxConfigRepository))
-		must(container.Provide(repository.NewTenantSkillRepository))
 		must(container.Provide(repository.NewCustomAgentRepository))
 		must(container.Provide(repository.NewAgentShareRepository))
 		must(container.Provide(repository.NewEmbedChannelRepository))
 		must(container.Provide(repository.NewTenantDisabledSharedAgentRepository))
 		must(container.Provide(repository.NewUserResourceFavoriteRepository))
-		must(container.Provide(service.NewWebSearchStateService))
 	} else {
 		// ModelService's usage diagnostics still reference agents; under the
 		// knowledge-only profile agents do not exist, so a disabled repository
@@ -275,8 +277,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewWikiPageService))
 	must(container.Provide(service.NewWikiIngestService, dig.Name("wikiIngest")))
 	must(container.Provide(service.NewWikiLintService))
+	must(container.Provide(service.NewMessageService))
 	if !knowledgeOnly {
-		must(container.Provide(service.NewMessageService))
 		must(container.Provide(service.NewMessageSuggestionService))
 		must(container.Provide(service.NewMCPServiceService))
 		must(container.Provide(service.NewMCPToolApprovalService))
@@ -285,15 +287,12 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		must(container.Provide(service.NewEmbedChannelService))
 	}
 
-	// Web search service (needed by AgentService)
+	// Web search service (needed by the RAG pipeline's Search plugin; the
+	// knowledge-only profile registers the same registry/providers).
 	logger.Debugf(ctx, "[Container] Registering web search registry and providers...")
-	if !knowledgeOnly {
-		must(container.Provide(infra_web_search.NewRegistry))
-		must(container.Invoke(registerWebSearchProviders))
-	}
-	if !knowledgeOnly {
-		must(container.Provide(repository.NewWebSearchProviderRepository))
-	}
+	must(container.Provide(infra_web_search.NewRegistry))
+	must(container.Invoke(registerWebSearchProviders))
+	must(container.Provide(repository.NewWebSearchProviderRepository))
 	must(container.Provide(repository.NewVectorStoreRepository))
 	must(container.Provide(repository.NewStorageBackendRepository))
 	must(container.Provide(repository.NewResourceRepository))
@@ -304,10 +303,11 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	// TenantStoreOwnership adapter used by the retriever factory functions
 	// to verify that a resolved VectorStore belongs to the caller's tenant.
 	must(container.Provide(retriever.NewVectorStoreRepoOwnership))
-	if !knowledgeOnly {
-		must(container.Provide(service.NewWebSearchService))
-		must(container.Provide(service.NewWebSearchProviderService))
-	}
+	// The RAG pipeline's Search plugin needs the web search service; the
+	// knowledge-only profile provides it (with the disabled temp-document
+	// repository above, web results degrade to no-op but resolve).
+	must(container.Provide(service.NewWebSearchService))
+	must(container.Provide(service.NewWebSearchProviderService))
 	must(container.Provide(NewEngineFactory))
 	// StoreRegistry: same instance as RetrieveEngineRegistry, exposed as StoreRegistry interface.
 	// NewRetrieveEngineRegistry always returns *retriever.RetrieveEngineRegistry which implements both.
@@ -329,22 +329,22 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		logger.Debugf(ctx, "[Container] Registering event bus and agent service...")
 		must(container.Provide(event.NewEventBus))
 		must(container.Provide(service.NewSessionSandboxPinner))
-		must(container.Provide(func(cfg *config.Config, s interfaces.MCPToolApprovalService, rdb *redis.Client) *approval.Gate {
-			return approval.NewGate(cfg, &approval.Adapter{Svc: s}, rdb)
-		}))
-		must(container.Provide(func(g *approval.Gate) approval.MCPApproval { return g }))
 		must(container.Provide(service.NewAgentService))
 	}
 
 	// Session service (depends on agent service)
 	// SessionService is created after AgentService and passes itself to AgentService.CreateAgentEngine when needed
+	// The knowledge-only profile keeps its disabled memory service (no
+	// long-term memory ranking); the RAG pipeline works without it.
 	logger.Debugf(ctx, "[Container] Registering memory service...")
 	if !knowledgeOnly {
 		must(container.Provide(memory.NewMemoryService))
 	}
 
-	if !knowledgeOnly {
-		logger.Debugf(ctx, "[Container] Registering session service...")
+	logger.Debugf(ctx, "[Container] Registering session service...")
+	if knowledgeOnly {
+		must(container.Provide(service.NewSessionServiceForKnowledgeOnly))
+	} else {
 		must(container.Provide(service.NewSessionService))
 		must(container.Provide(service.NewTenantSkillService))
 		must(container.Provide(service.NewUserEnvService))
@@ -412,27 +412,25 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		must(container.Invoke(startHousekeepingService))
 		logger.Debugf(ctx, "[Container] Knowledge housekeeping runner registered")
 	}
-	if !knowledgeOnly {
-		must(container.Provide(chatpipeline.NewEventManager))
-		must(container.Invoke(chatpipeline.NewPluginSearch))
-		must(container.Invoke(chatpipeline.NewPluginRerank))
-		must(container.Invoke(chatpipeline.NewPluginWebFetch))
-		must(container.Invoke(chatpipeline.NewPluginMerge))
-		must(container.Invoke(chatpipeline.NewPluginDataAnalysis))
-		must(container.Invoke(chatpipeline.NewPluginIntoChatMessage))
-		must(container.Invoke(chatpipeline.NewPluginChatCompletion))
-		must(container.Invoke(chatpipeline.NewPluginChatCompletionStream))
-		must(container.Invoke(chatpipeline.NewPluginFilterTopK))
-		must(container.Invoke(chatpipeline.NewPluginQueryUnderstand))
-		must(container.Invoke(chatpipeline.NewPluginLoadHistory))
-		must(container.Invoke(chatpipeline.NewPluginMemoryRecall))
-		must(container.Invoke(chatpipeline.NewPluginExtractEntity))
-		must(container.Invoke(chatpipeline.NewPluginSearchEntity))
-		must(container.Invoke(chatpipeline.NewPluginSearchParallel))
-		must(container.Invoke(chatpipeline.NewPluginWikiBoost))
-		must(container.Invoke(chatpipeline.NewPluginMemoryAffinity))
-		logger.Debugf(ctx, "[Container] Chat pipeline plugins registered")
-	}
+	must(container.Provide(chatpipeline.NewEventManager))
+	must(container.Invoke(chatpipeline.NewPluginSearch))
+	must(container.Invoke(chatpipeline.NewPluginRerank))
+	must(container.Invoke(chatpipeline.NewPluginWebFetch))
+	must(container.Invoke(chatpipeline.NewPluginMerge))
+	must(container.Invoke(chatpipeline.NewPluginDataAnalysis))
+	must(container.Invoke(chatpipeline.NewPluginIntoChatMessage))
+	must(container.Invoke(chatpipeline.NewPluginChatCompletion))
+	must(container.Invoke(chatpipeline.NewPluginChatCompletionStream))
+	must(container.Invoke(chatpipeline.NewPluginFilterTopK))
+	must(container.Invoke(chatpipeline.NewPluginQueryUnderstand))
+	must(container.Invoke(chatpipeline.NewPluginLoadHistory))
+	must(container.Invoke(chatpipeline.NewPluginMemoryRecall))
+	must(container.Invoke(chatpipeline.NewPluginExtractEntity))
+	must(container.Invoke(chatpipeline.NewPluginSearchEntity))
+	must(container.Invoke(chatpipeline.NewPluginSearchParallel))
+	must(container.Invoke(chatpipeline.NewPluginWikiBoost))
+	must(container.Invoke(chatpipeline.NewPluginMemoryAffinity))
+	logger.Debugf(ctx, "[Container] Chat pipeline plugins registered")
 
 	// TenantSkillService is provided next to SessionService (handlers need
 	// it), but Invoke constructs the whole chain. SessionService needs
@@ -493,7 +491,11 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	// Wiki page handler
 	must(container.Provide(handler.NewWikiPageHandler))
 	must(container.Provide(handler.NewAstaraControlPlaneHandler))
+	must(container.Provide(handler.NewAstaraReadAuthorizedHandler))
+	must(container.Provide(handler.NewAstaraSearchAuthorizedHandler))
 	must(container.Provide(handler.NewAstaraAnswerHandler))
+	must(container.Provide(handler.NewAstaraAnswerAuthorizedHandler))
+	must(container.Provide(handler.NewAstaraKnowledgeModelConfigHandler))
 	must(container.Provide(service.NewEmbeddedSessionService))
 	must(container.Provide(handler.NewAstaraIdentityExchangeHandler))
 	// IM integration

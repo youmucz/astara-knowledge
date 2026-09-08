@@ -137,6 +137,38 @@ type sessionService struct {
 	tenantSkillRepo   repository.TenantSkillRepository
 }
 
+// NewSessionServiceForKnowledgeOnly constructs the session service for the
+// knowledge-only profile. The RAG trio (search/answer/answer-authorized) is
+// the only consumer: its paths touch kbShareService, eventManager, and
+// webSearchProviderRepo; every agent/sandbox/memory/skill dependency stays
+// nil and its code paths are never registered in this profile.
+func NewSessionServiceForKnowledgeOnly(cfg *config.Config,
+	sessionRepo interfaces.SessionRepository,
+	messageRepo interfaces.MessageRepository,
+	knowledgeBaseService interfaces.KnowledgeBaseService,
+	knowledgeService interfaces.KnowledgeService,
+	chunkService interfaces.ChunkService,
+	modelService interfaces.ModelService,
+	tenantService interfaces.TenantService,
+	eventManager *chatpipeline.EventManager,
+	webSearchProviderRepo interfaces.WebSearchProviderRepository,
+	kbShareService interfaces.KBShareService,
+) interfaces.SessionService {
+	return &sessionService{
+		cfg:                   cfg,
+		sessionRepo:           sessionRepo,
+		messageRepo:           messageRepo,
+		knowledgeBaseService:  knowledgeBaseService,
+		knowledgeService:      knowledgeService,
+		chunkService:          chunkService,
+		modelService:          modelService,
+		tenantService:         tenantService,
+		eventManager:          eventManager,
+		webSearchProviderRepo: webSearchProviderRepo,
+		kbShareService:        kbShareService,
+	}
+}
+
 // NewSessionService creates a new session service instance with all required dependencies
 func NewSessionService(cfg *config.Config,
 	sessionRepo interfaces.SessionRepository,

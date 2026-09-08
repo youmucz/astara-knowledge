@@ -612,12 +612,18 @@ const DEFAULT_CHUNKING_PRESET = {
 const navItems = computed(() => {
   const items: { key: string; icon: string; label: string; badge?: number }[] = [
     { key: 'basic', icon: 'info-circle', label: t('knowledgeEditor.sidebar.basic') },
-    { key: 'models', icon: 'control-platform', label: t('knowledgeEditor.sidebar.models') },
     // VectorStore binding section — present in both create and edit
     // modes. Create mode shows a dropdown; edit mode shows the bound
     // store read-only with an immutability hint.
     { key: 'vectorStore', icon: 'data-base', label: t('knowledgeEditor.sidebar.vectorStore') }
   ]
+  if (!isEmbedded) {
+    // Per-KB model configuration is NOT part of the embedded surface: the
+    // KnowledgeQA/chat vendor configuration is owned by Plane (god-mode),
+    // and embedding/rerank stay deployment-side. The models section only
+    // exists in the standalone profile.
+    items.splice(1, 0, { key: 'models', icon: 'control-platform', label: t('knowledgeEditor.sidebar.models') })
+  }
   if (formData.value?.type === 'faq') {
     items.push({ key: 'faq', icon: 'help-circle', label: t('knowledgeEditor.sidebar.faq') })
   } else {

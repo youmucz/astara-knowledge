@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,12 +15,17 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
 
-type AstaraControlPlaneHandler struct{ db *gorm.DB }
+type AstaraControlPlaneHandler struct {
+	db                   *gorm.DB
+	knowledgeBaseService interfaces.KnowledgeBaseService
+	taskEnqueuer         interfaces.TaskEnqueuer
+}
 
-func NewAstaraControlPlaneHandler(db *gorm.DB) *AstaraControlPlaneHandler {
-	return &AstaraControlPlaneHandler{db: db}
+func NewAstaraControlPlaneHandler(db *gorm.DB, knowledgeBaseService interfaces.KnowledgeBaseService, taskEnqueuer interfaces.TaskEnqueuer) *AstaraControlPlaneHandler {
+	return &AstaraControlPlaneHandler{db: db, knowledgeBaseService: knowledgeBaseService, taskEnqueuer: taskEnqueuer}
 }
 
 // Authenticate guards the private control plane with the shared service
@@ -104,7 +110,7 @@ func (h *AstaraControlPlaneHandler) FindTenant(c *gin.Context) {
 		return
 	}
 	var tenant types.Tenant
-	if err := h.db.WithContext(c).Where("external_system = ? AND external_id = ?", system, id).First(&tenant).Error; err != nil {
+	if err := h.db.WithContext(c.Request.Context()).Where("external_system = ? AND external_id = ?", system, id).First(&tenant).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "tenant not found"})
 			return
@@ -127,7 +133,7 @@ func (h *AstaraControlPlaneHandler) CreateTenant(c *gin.Context) {
 		return
 	}
 	var existing types.Tenant
-	err := h.db.WithContext(c).Where("external_system = ? AND external_id = ?", system, id).First(&existing).Error
+	err := h.db.WithContext(c.Request.Context()).Where("external_system = ? AND external_id = ?", system, id).First(&existing).Error
 	if err == nil {
 		c.JSON(http.StatusOK, tenantResource(&existing))
 		return
@@ -138,9 +144,9 @@ func (h *AstaraControlPlaneHandler) CreateTenant(c *gin.Context) {
 	}
 	now := time.Now().UTC()
 	tenant := types.Tenant{Name: strings.TrimSpace(request.Name), Status: "active", Business: "astara", ExternalSystem: &system, ExternalID: &id, CreatedAt: now, UpdatedAt: now}
-	if err := h.db.WithContext(c).Create(&tenant).Error; err != nil {
+	if err := h.db.WithContext(c.Request.Context()).Create(&tenant).Error; err != nil {
 		// A concurrent retry can win the unique key race. Re-read and converge.
-		if readErr := h.db.WithContext(c).Where("external_system = ? AND external_id = ?", system, id).First(&existing).Error; readErr == nil {
+		if readErr := h.db.WithContext(c.Request.Context()).Where("external_system = ? AND external_id = ?", system, id).First(&existing).Error; readErr == nil {
 			c.JSON(http.StatusOK, tenantResource(&existing))
 			return
 		}
@@ -157,7 +163,7 @@ func (h *AstaraControlPlaneHandler) FindKnowledgeBase(c *gin.Context) {
 		return
 	}
 	var kb types.KnowledgeBase
-	query := h.db.WithContext(c).Where("external_system = ? AND external_id = ?", system, id)
+	query := h.db.WithContext(c.Request.Context()).Where("external_system = ? AND external_id = ?", system, id)
 	if tenantID := strings.TrimSpace(c.Query("tenant_id")); tenantID != "" {
 		query = query.Where("tenant_id = ?", tenantID)
 	}
@@ -185,12 +191,12 @@ func (h *AstaraControlPlaneHandler) CreateKnowledgeBase(c *gin.Context) {
 		return
 	}
 	var tenant types.Tenant
-	if err := h.db.WithContext(c).First(&tenant, tenantID).Error; err != nil {
+	if err := h.db.WithContext(c.Request.Context()).First(&tenant, tenantID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "tenant not found"})
 		return
 	}
 	var existing types.KnowledgeBase
-	err := h.db.WithContext(c).Where("tenant_id = ? AND external_system = ? AND external_id = ?", tenantID, system, id).First(&existing).Error
+	err := h.db.WithContext(c.Request.Context()).Where("tenant_id = ? AND external_system = ? AND external_id = ?", tenantID, system, id).First(&existing).Error
 	if err == nil {
 		c.JSON(http.StatusOK, knowledgeBaseResource(&existing))
 		return
@@ -199,21 +205,50 @@ func (h *AstaraControlPlaneHandler) CreateKnowledgeBase(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "knowledge base lookup failed"})
 		return
 	}
+	// Assign the tenant's default embedding model (tenant-scoped first, then
+	// the builtin default) and create through the knowledge-base service so
+	// the indexing/retrieval pipelines and vector-store wiring exist.
+	var defaultEmbedding types.Model
+	embeddingErr := h.db.WithContext(c.Request.Context()).
+		Where("type = ? AND is_default = ? AND (tenant_id = ? OR is_builtin = ?)",
+			types.ModelTypeEmbedding, true, tenantID, true).
+		// Prefer a tenant-scoped default (is_builtin=false) over the builtin
+		// fallback (is_builtin=true).
+		Order("is_builtin ASC").
+		First(&defaultEmbedding).Error
+	if embeddingErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no default embedding model available"})
+		return
+	}
 	now := time.Now().UTC()
-	kb := types.KnowledgeBase{ID: uuid.NewString(), Name: strings.TrimSpace(request.Name), Type: types.KnowledgeBaseTypeDocument, TenantID: tenantID, ExternalSystem: &system, ExternalID: &id, CreatedAt: now, UpdatedAt: now}
-	if err := h.db.WithContext(c).Create(&kb).Error; err != nil {
-		if readErr := h.db.WithContext(c).Where("tenant_id = ? AND external_system = ? AND external_id = ?", tenantID, system, id).First(&existing).Error; readErr == nil {
+	kb := types.KnowledgeBase{
+		ID:               uuid.NewString(),
+		Name:             strings.TrimSpace(request.Name),
+		Type:             types.KnowledgeBaseTypeDocument,
+		TenantID:         tenantID,
+		ExternalSystem:   &system,
+		ExternalID:       &id,
+		EmbeddingModelID: defaultEmbedding.ID,
+		ChunkingConfig:   types.ChunkingConfig{ChunkSize: 512, ChunkOverlap: 50, Separators: []string{"\n\n", "\n", "。", "！", "？", "；"}},
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	createCtx := context.WithValue(c.Request.Context(), types.TenantIDContextKey, tenantID)
+	createCtx = context.WithValue(createCtx, types.TenantInfoContextKey, &tenant)
+	created, createErr := h.knowledgeBaseService.CreateKnowledgeBase(createCtx, &kb)
+	if createErr != nil {
+		if readErr := h.db.WithContext(c.Request.Context()).Where("tenant_id = ? AND external_system = ? AND external_id = ?", tenantID, system, id).First(&existing).Error; readErr == nil {
 			c.JSON(http.StatusOK, knowledgeBaseResource(&existing))
 			return
 		}
-		c.JSON(http.StatusConflict, gin.H{"error": "external knowledge base identity conflict"})
+		c.JSON(http.StatusConflict, gin.H{"error": "knowledge base creation failed"})
 		return
 	}
-	c.JSON(http.StatusCreated, knowledgeBaseResource(&kb))
+	c.JSON(http.StatusCreated, knowledgeBaseResource(created))
 }
 
 func (h *AstaraControlPlaneHandler) DeleteTenant(c *gin.Context) {
-	result := h.db.WithContext(c).Delete(&types.Tenant{}, c.Param("tenant_id"))
+	result := h.db.WithContext(c.Request.Context()).Delete(&types.Tenant{}, c.Param("tenant_id"))
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "tenant deletion failed"})
 		return
@@ -226,7 +261,7 @@ func (h *AstaraControlPlaneHandler) DeleteTenant(c *gin.Context) {
 }
 
 func (h *AstaraControlPlaneHandler) DeleteKnowledgeBase(c *gin.Context) {
-	result := h.db.WithContext(c).Where("id = ? AND tenant_id = ?", c.Param("knowledge_base_id"), c.Param("tenant_id")).Delete(&types.KnowledgeBase{})
+	result := h.db.WithContext(c.Request.Context()).Where("id = ? AND tenant_id = ?", c.Param("knowledge_base_id"), c.Param("tenant_id")).Delete(&types.KnowledgeBase{})
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "knowledge base deletion failed"})
 		return

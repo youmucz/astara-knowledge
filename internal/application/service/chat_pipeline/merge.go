@@ -325,7 +325,7 @@ func (p *PluginMerge) resolveParentChunks(
 			// (the core parent-child value). Scope ImageInfo to this child only so
 			// image-heavy parents do not inject every sibling page's OCR/Caption.
 			parent, ok := parentMap[r.ParentChunkID]
-			if !ok || parent.Content == "" || parent.ChunkType != types.ChunkTypeParentText {
+			if !ok || parent.KnowledgeID != r.KnowledgeID || parent.Content == "" || parent.ChunkType != types.ChunkTypeParentText {
 				continue
 			}
 			pipelineInfo(ctx, "Merge", "parent_resolve", map[string]interface{}{
@@ -345,14 +345,14 @@ func (p *PluginMerge) resolveParentChunks(
 
 		case string(types.ChunkTypeImageOCR), string(types.ChunkTypeImageCaption):
 			textParent, ok := parentMap[r.ParentChunkID]
-			if !ok || textParent.Content == "" || textParent.ChunkType != types.ChunkTypeText {
+			if !ok || textParent.KnowledgeID != r.KnowledgeID || textParent.Content == "" || textParent.ChunkType != types.ChunkTypeText {
 				continue
 			}
 			hitImageInfo := r.ImageInfo
 			contentSource := textParent
 			if textParent.ParentChunkID != "" {
 				if grandparent, found := parentMap[textParent.ParentChunkID]; found &&
-					grandparent.ChunkType == types.ChunkTypeParentText && grandparent.Content != "" {
+					grandparent.KnowledgeID == r.KnowledgeID && grandparent.ChunkType == types.ChunkTypeParentText && grandparent.Content != "" {
 					contentSource = grandparent
 				}
 			}

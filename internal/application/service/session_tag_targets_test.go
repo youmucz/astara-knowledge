@@ -172,6 +172,39 @@ func TestBuildSearchTargets_DocumentTagScopeResolvesKnowledgeIDs(t *testing.T) {
 	assert.True(t, targets[0].DisableRecallThresholds)
 }
 
+func TestAuthorizedEmptyDocumentScopeDoesNotCreateKBTargets(t *testing.T) {
+	svc := newTagTargetSessionService()
+	for _, ids := range [][]string{nil, {}, {"unknown-document"}} {
+		targets, err := svc.buildSearchTargets(tagTargetContext(), 100, nil, ids, nil)
+		require.NoError(t, err)
+		require.Empty(t, targets, "empty or unresolved explicit scope must never fall back to a whole KB")
+	}
+}
+
+func TestAuthorizedDocumentOnlyScopeDoesNotExpandToSiblingDocuments(t *testing.T) {
+	svc := newTagTargetSessionService()
+	ctx := tagTargetContext()
+	req := &types.QARequest{
+		Session:      &types.Session{TenantID: 100},
+		KnowledgeIDs: []string{"doc-1", "doc-3"},
+		Stateless:    true,
+	}
+	kbIDs, docIDs, err := svc.resolveKnowledgeBases(ctx, req)
+	require.NoError(t, err)
+	require.Empty(t, kbIDs)
+	targets, err := svc.buildSearchTargets(ctx, 100, kbIDs, docIDs, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, targets)
+	var actual []string
+	for _, target := range targets {
+		require.Equal(t, types.SearchTargetTypeKnowledge, target.Type)
+		require.NotEmpty(t, target.KnowledgeIDs)
+		actual = append(actual, target.KnowledgeIDs...)
+	}
+	assert.ElementsMatch(t, []string{"doc-1", "doc-3"}, actual)
+	assert.NotContains(t, actual, "doc-2")
+}
+
 func TestBuildSearchTargets_ExplicitKnowledgeScopeDisablesRecallThresholds(t *testing.T) {
 	svc := newTagTargetSessionService()
 

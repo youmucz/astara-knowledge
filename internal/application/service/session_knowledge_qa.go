@@ -824,8 +824,8 @@ func (s *sessionService) SearchKnowledge(ctx context.Context,
 	knowledgeBaseIDs []string, knowledgeIDs []string, tagScopes []types.TagScope, query string,
 ) ([]*types.SearchResult, error) {
 	logger.Info(ctx, "Start knowledge base search without LLM summary")
-	logger.Infof(ctx, "Knowledge base search parameters, knowledge base IDs: %v, knowledge IDs: %v, tag scopes: %d, query: %s",
-		knowledgeBaseIDs, knowledgeIDs, len(tagScopes), query)
+	logger.Infof(ctx, "Knowledge search scope counts: knowledge bases=%d, documents=%d, tag scopes=%d",
+		len(knowledgeBaseIDs), len(knowledgeIDs), len(tagScopes))
 
 	// Get tenant ID from context
 	tenantID, ok := types.TenantIDFromContext(ctx)

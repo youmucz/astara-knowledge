@@ -32,7 +32,7 @@ func astaraDocumentTestEngine(t *testing.T) (*gin.Engine, *gorm.DB, string) {
 	if err := db.Create(kb).Error; err != nil {
 		t.Fatal(err)
 	}
-	h := NewAstaraControlPlaneHandler(db)
+	h := NewAstaraControlPlaneHandler(db, &stubKnowledgeBaseService{db: db}, nil)
 	r := gin.New()
 	g := r.Group("/api/v1/astara", h.Authenticate)
 	g.PUT("/knowledge-bases/:knowledge_base_id/documents", h.UpsertDocument)

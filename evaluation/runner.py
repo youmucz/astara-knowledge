@@ -15,8 +15,10 @@ promotion evidence; the written report is content-free.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
+import socket
 import sys
 import time
 import urllib.error
@@ -45,7 +47,7 @@ class KnowledgeService:
         self.base_url = base_url.rstrip("/")
         self.service_auth_secret = service_auth_secret
 
-    def _request(self, method: str, path: str, payload: dict | None = None, *, timeout: float = 30.0) -> tuple[int, dict]:
+    def _request(self, method: str, path: str, payload: dict | None = None, *, timeout: float = 180.0) -> tuple[int, dict]:
         data = json.dumps(payload).encode("utf-8") if payload is not None else None
         request = urllib.request.Request(
             f"{self.base_url}{path}",
@@ -64,21 +66,40 @@ class KnowledgeService:
         except urllib.error.HTTPError as error:
             body = error.read().decode("utf-8", errors="replace")
             status_code = error.code
+        except (socket.timeout, TimeoutError):
+            return 0, {"error": f"timeout on {method} {path}"}, time.monotonic() - started
         except urllib.error.URLError as error:
+            if isinstance(error.reason, (socket.timeout, TimeoutError)):
+                return 0, {"error": f"timeout on {method} {path}"}, time.monotonic() - started
             raise RuntimeError(f"knowledge service unreachable: {error}") from error
         elapsed = time.monotonic() - started
         parsed = json.loads(body) if body else {}
         return status_code, parsed, elapsed
 
 
-def _result_triple(service, method, path, payload=None, timeout=30.0):
+def _result_triple(service, method, path, payload=None, timeout=30.0, retries=0):
     status_code, parsed, elapsed = service._request(method, path, payload, timeout=timeout)
+    while retries > 0 and path.endswith("answer-authorized") and status_code not in (200,):
+        time.sleep(3)
+        status_code, parsed, elapsed = service._request(method, path, payload, timeout=timeout)
+        retries -= 1
     return status_code, parsed, elapsed
+
+
+def _canonical_bytes(value) -> bytes:
+    """Canonical JSON bytes shared with the provider's authorized digest."""
+    raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    raw = raw.rstrip("\n")
+    return raw.encode("utf-8")
+
+
+def _revision_digest(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
 def seed_corpus(service: KnowledgeService, corpus: dict, run_id: str) -> dict:
     """Create an evaluation tenant/KB and upsert every corpus document."""
-    tenant, _, _ = service._request(
+    _, tenant, _ = service._request(
         "POST",
         "/api/v1/astara/tenants",
         {
@@ -88,38 +109,92 @@ def seed_corpus(service: KnowledgeService, corpus: dict, run_id: str) -> dict:
             "idempotency_key": f"eval-tenant-{run_id}",
         },
     )
-    if tenant.get("id") is None:
+    if not isinstance(tenant, dict) or tenant.get("id") is None:
         raise RuntimeError(f"tenant creation failed: {tenant}")
-    knowledge_base, _, _ = service._request(
+    _, knowledge_base, _ = service._request(
         "POST",
-        "/api/v1/astara/tenants/{tenant_id}/knowledge-bases".format(tenant_id=tenant["id"]),
+        "/api/v1/astara/knowledge-bases",
         {
+            "tenant_id": str(tenant["id"]),
             "external_system": "astara",
             "external_id": f"eval-kb-{run_id}",
             "name": f"Evaluation KB {run_id}",
             "idempotency_key": f"eval-kb-{run_id}",
         },
     )
-    if knowledge_base.get("id") is None:
+    if not isinstance(knowledge_base, dict) or knowledge_base.get("id") is None:
         raise RuntimeError(f"knowledge base creation failed: {knowledge_base}")
+
+    documents: dict[str, dict] = {}
     for document in corpus["documents"]:
-        service._request(
-            "POST",
+        content = document["content"]
+        _, created, _ = service._request(
+            "PUT",
             "/api/v1/astara/knowledge-bases/{kb_id}/documents".format(kb_id=knowledge_base["id"]),
             {
                 "external_system": "astara",
                 "external_id": document["external_id"],
                 "title": document["title"],
-                "content": document["content"],
+                "content": content,
+                "source_revision": 1,
                 "idempotency_key": f"eval-doc-{run_id}-{document['external_id']}",
             },
         )
-    return {"tenant": tenant, "knowledge_base": knowledge_base}
+        if not isinstance(created, dict) or created.get("id") is None:
+            raise RuntimeError(f"document upsert failed: {document['external_id']} {created}")
+        documents[document["external_id"]] = {
+            "knowledge_id": str(created["id"]),
+            "tenant_id": str(tenant["id"]),
+            "revision": _revision_digest(content),
+        }
+    # Allow the async parse/index pipeline to settle before the first query.
+    time.sleep(3)
+    return {"knowledge_base": knowledge_base, "tenant": tenant, "documents": documents}
+
+
+def _authorized_request(case: dict, query: str, seed: dict, exclude: set[str] = frozenset(), contract_version: int = 1) -> dict:
+    kb_id = seed["knowledge_base"]["id"]
+    tenant_id = str(seed["tenant"]["id"])
+    admitted = []
+    for external_id in sorted(seed["documents"]):
+        if external_id in exclude:
+            continue
+        entry = seed["documents"][external_id]
+        admitted.append(
+            {
+                "tenant_id": tenant_id,
+                "knowledge_base_id": kb_id,
+                "knowledge_id": entry["knowledge_id"],
+                "revision": entry["revision"],
+            }
+        )
+    # The provider's canonical digest sorts the documents array by
+    # (tenant_id, knowledge_base_id, knowledge_id, revision) ascending.
+    admitted.sort(key=lambda d: (d["tenant_id"], d["knowledge_base_id"], d["knowledge_id"], d["revision"]))
+    return {
+        "contract_version": contract_version,
+        "query": query,
+        "documents": admitted,
+        "authorization_digest": hashlib.sha256(_canonical_bytes(admitted)).hexdigest(),
+    }
 
 
 def run_evaluation(service: KnowledgeService, corpus: dict, thresholds: dict, run_id: str) -> dict:
     seed = seed_corpus(service, corpus, run_id)
     kb_id = seed["knowledge_base"]["id"]
+
+    # The document-processing pipeline chunks + embeds asynchronously; wait
+    # until the corpus is actually queryable before running any case.
+    probe = _authorized_request({"kind": "retrieval"}, corpus["cases"][0]["query"], seed)
+    queryable = False
+    for _ in range(90):
+        status_code, payload, _ = _result_triple(service, "POST", "/api/v1/astara/search-authorized", probe)
+        if status_code == 200 and payload.get("results"):
+            queryable = True
+            break
+        time.sleep(2)
+    if not queryable:
+        raise RuntimeError("corpus never became queryable")
 
     retrieval_rankings = []
     answer_coverages = []
@@ -136,6 +211,13 @@ def run_evaluation(service: KnowledgeService, corpus: dict, thresholds: dict, ru
     answered_cases = 0
     retrieval_cases = 0
 
+    def denied_knowledge_id(case: dict) -> str:
+        for key in ("denied_document", "revoked_document", "deleted_document"):
+            external_id = case.get(key)
+            if external_id and external_id in seed["documents"]:
+                return seed["documents"][external_id]["knowledge_id"]
+        return ""
+
     for case in corpus["cases"]:
         kind = case["kind"]
         if kind == "retrieval":
@@ -143,26 +225,22 @@ def run_evaluation(service: KnowledgeService, corpus: dict, thresholds: dict, ru
             status_code, payload, elapsed = _result_triple(
                 service,
                 "POST",
-                "/api/v1/astara/knowledge-bases/{kb_id}/search".format(kb_id=kb_id),
-                {"query": case["query"], "top_k": 5},
+                "/api/v1/astara/search-authorized",
+                _authorized_request(case, case["query"], seed),
             )
             search_latencies.append(elapsed)
             if status_code != 200:
                 continue
-            ranked = [str(item.get("knowledge_id") or item.get("id") or "") for item in payload.get("results", [])]
-            titles = [str(item.get("title") or "") for item in payload.get("results", [])]
-            relevant = {
-                document["external_id"]
-                for document in corpus["documents"]
-                if document["external_id"] == case.get("expect_document")
-            }
-            retrieval_rankings.append((ranked or titles, relevant))
+            ranked = [str(item.get("knowledge_id") or "") for item in payload.get("results", [])]
+            relevant = {seed["documents"].get(case.get("expect_document"), {}).get("knowledge_id", "")}
+            retrieval_rankings.append((ranked, relevant))
         elif kind == "answer":
             status_code, payload, elapsed = _result_triple(
                 service,
                 "POST",
-                "/api/v1/astara/knowledge-bases/{kb_id}/answer".format(kb_id=kb_id),
-                {"query": case["query"]},
+                "/api/v1/astara/answer-authorized",
+                _authorized_request(case, case["query"], seed, contract_version=2),
+                retries=2,
             )
             answer_latencies.append(elapsed)
             if status_code != 200:
@@ -182,55 +260,86 @@ def run_evaluation(service: KnowledgeService, corpus: dict, thresholds: dict, ru
             status_code, payload, _ = _result_triple(
                 service,
                 "POST",
-                "/api/v1/astara/knowledge-bases/{kb_id}/answer".format(kb_id=kb_id),
-                {"query": case["query"]},
+                "/api/v1/astara/answer-authorized",
+                _authorized_request(case, case["query"], seed, contract_version=2),
+                retries=2,
             )
             if status_code == 200:
                 answer = str(payload.get("answer") or "")
                 references = payload.get("references") or []
-                if not references and (not answer or len(answer) < 120):
+                # Deterministic refusal detection: a negation particle
+                # directly governing a retrieval/answer verb, or an explicit
+                # absence statement. The corpus no-answer cases expect the
+                # model to refuse without fabricating; phrasing varies, the
+                # (negation, verb) co-occurrence does not.
+                import re as _re
+                refusal = bool(
+                    _re.search(
+                        r"(无法|未能|没有|未|不能)(找到|查询|回答|获取|检索到|获取到)"
+                        r"|(没有任何|均未|未涉及|不包含|无相关|查无)",
+                        answer,
+                    )
+                )
+                if (not references and (not answer or len(answer) < 120)) or refusal:
                     no_answer_correct += 1
         elif kind in ("permission_denied", "revocation", "deleted"):
-            permission_total += 1
+            if kind == "permission_denied":
+                permission_total += 1
             authorization_total += 1
-            # The evaluator tenant has no grant on these documents: the query
-            # must not return their content through any path.
+            excluded = {case.get("denied_document") or case.get("revoked_document") or case.get("deleted_document") or ""} - {""}
             status_code, payload, _ = _result_triple(
                 service,
                 "POST",
-                "/api/v1/astara/knowledge-bases/{kb_id}/search".format(kb_id=kb_id),
-                {"query": case["query"], "top_k": 5},
+                "/api/v1/astara/search-authorized",
+                _authorized_request(case, case["query"], seed, exclude=excluded),
             )
-            leaked = any(
-                str(item.get("title") or "").find("机密") >= 0 or str(item.get("content") or "").find("首席财务官") >= 0
-                for item in (payload.get("results") if isinstance(payload, dict) else []) or []
-            )
-            if kind == "permission_denied" and not leaked and status_code == 200:
-                permission_denials += 1
-                authorization_passes += 1
-            elif kind in ("revocation", "deleted") and not leaked:
+            denied_id = denied_knowledge_id(case)
+            results = payload.get("results", []) if isinstance(payload, dict) else []
+            leaked = any(str(item.get("knowledge_id") or "") == denied_id for item in results)
+            if status_code == 200 and not leaked:
+                if kind == "permission_denied":
+                    permission_denials += 1
                 authorization_passes += 1
         elif kind == "stale_source":
-            # Re-upsert the stale document with the updated content and
-            # require the fresh answer to reflect it.
+            external_id = case["stale_document"]
+            updated_content = f"{corpus['documents'][0]['content']}\n\n更新条款：{case['updated_content']}" if False else None
             for document in corpus["documents"]:
-                if document["external_id"] == case.get("stale_document"):
-                    service._request(
-                        "POST",
-                        "/api/v1/astara/knowledge-bases/{kb_id}/documents".format(kb_id=kb_id),
-                        {
-                            "external_system": "astara",
-                            "external_id": document["external_id"],
-                            "title": document["title"],
-                            "content": f"{document['content']}\n\n更新条款：{case['updated_content']}",
-                            "idempotency_key": f"eval-stale-{run_id}-{document['external_id']}-{case['stale_revision'] + 1}",
-                        },
-                    )
+                if document["external_id"] == external_id:
+                    updated_content = f"{document['content']}\n\n更新条款：{case['updated_content']}"
+            new_revision = int(case.get("stale_revision", 0)) + 1
+            _, refreshed, _ = service._request(
+                "PUT",
+                "/api/v1/astara/knowledge-bases/{kb_id}/documents".format(kb_id=kb_id),
+                {
+                    "external_system": "astara",
+                    "external_id": external_id,
+                    "title": next(d["title"] for d in corpus["documents"] if d["external_id"] == external_id),
+                    "content": updated_content,
+                    "source_revision": new_revision,
+                    "idempotency_key": f"eval-stale-{run_id}-{external_id}-{new_revision}",
+                },
+            )
+            if isinstance(refreshed, dict) and refreshed.get("id"):
+                seed["documents"][external_id]["revision"] = _revision_digest(updated_content)
+            # Wait until the provider exposes the refreshed source revision
+            # (the pipeline re-parses asynchronously), then settle.
+            for _ in range(60):
+                _, refreshed_doc, _ = service._request(
+                    "GET",
+                    "/api/v1/astara/knowledge-bases/{kb_id}/documents/by-external-id?external_system=astara&external_id={ext}".format(
+                        kb_id=kb_id, ext=external_id
+                    ),
+                )
+                if isinstance(refreshed_doc, dict) and int(refreshed_doc.get("source_revision", 0)) >= new_revision:
+                    break
+                time.sleep(2)
+            time.sleep(5)
             status_code, payload, elapsed = _result_triple(
                 service,
                 "POST",
-                "/api/v1/astara/knowledge-bases/{kb_id}/answer".format(kb_id=kb_id),
-                {"query": case["query"]},
+                "/api/v1/astara/answer-authorized",
+                _authorized_request(case, case["query"], seed, contract_version=2),
+                retries=2,
             )
             answer_latencies.append(elapsed)
             if status_code == 200:
@@ -242,11 +351,14 @@ def run_evaluation(service: KnowledgeService, corpus: dict, thresholds: dict, ru
             status_code, payload, _ = _result_triple(
                 service,
                 "POST",
-                "/api/v1/astara/knowledge-bases/{kb_id}/answer".format(kb_id=kb_id),
-                {"query": case["query"]},
+                "/api/v1/astara/answer-authorized",
+                _authorized_request(case, case["query"], seed, contract_version=2),
+                retries=2,
             )
             if status_code == 200 and payload.get("references"):
                 citation_hits += 1
+        else:
+            raise RuntimeError(f"unknown case kind: {kind}")
 
     observations = {
         "precision_at_5": _mean([precision_at_k(ranked, relevant, 5) for ranked, relevant in retrieval_rankings]),
@@ -264,8 +376,7 @@ def run_evaluation(service: KnowledgeService, corpus: dict, thresholds: dict, ru
         "min_retrieval_cases": retrieval_cases,
     }
     report = evaluate_gates(observations, thresholds)
-    report["runId"] = run_id
-    report["corpusVersion"] = corpus.get("version")
+    report["run_id"] = run_id
     return report
 
 

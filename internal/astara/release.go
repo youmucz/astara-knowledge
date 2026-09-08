@@ -40,5 +40,6 @@ func ReleaseIdentity(profile Profile) Identity {
 		ToolContractVersion:      ToolContractVersion,
 		ReadinessContractVersion: ReadinessContractVersion,
 		MigrationVersion:         MigrationContractVersion,
+		MigrationPosition:        MigrationContractVersion,
 	}
 }

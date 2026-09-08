@@ -1571,6 +1571,10 @@ func (h *KnowledgeHandler) DownloadKnowledgeFile(c *gin.Context) {
 	c.Header("Cache-Control", "must-revalidate")
 	c.Header("Pragma", "public")
 
+	if writeEmbeddedSourceFile(c, file) {
+		return
+	}
+
 	// Stream file content to response
 	c.Stream(func(w io.Writer) bool {
 		if _, err := io.Copy(w, file); err != nil {
@@ -1632,6 +1636,9 @@ func (h *KnowledgeHandler) PreviewKnowledgeFile(c *gin.Context) {
 	}
 	c.Header("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": filename}))
 	c.Header("Cache-Control", "private, max-age=3600")
+	if writeEmbeddedSourceFile(c, file) {
+		return
+	}
 
 	c.Stream(func(w io.Writer) bool {
 		if _, err := io.Copy(w, file); err != nil {

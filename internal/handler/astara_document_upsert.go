@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"github.com/hibiken/asynq"
 	"net/http"
 	"strings"
 	"time"
@@ -30,17 +31,17 @@ const astaraDocumentMaxContentRunes = 2_000_000
 const astaraDocumentMaxTitleRunes = 512
 
 type astaraDocumentUpsertRequest struct {
-	ExternalSystem     string                   `json:"external_system" binding:"required"`
-	ExternalID         string                   `json:"external_id" binding:"required"`
-	Title              string                   `json:"title"`
-	Content            string                   `json:"content" binding:"required"`
-	ContentHash        string                   `json:"content_hash"`
-	SourceRevision     int64                    `json:"source_revision"`
-	PolicyDigest       string                   `json:"policy_digest"`
-	ProjectIDs         []string                 `json:"project_ids"`
-	LabelIDs           []string                 `json:"label_ids"`
+	ExternalSystem     string                     `json:"external_system" binding:"required"`
+	ExternalID         string                     `json:"external_id" binding:"required"`
+	Title              string                     `json:"title"`
+	Content            string                     `json:"content" binding:"required"`
+	ContentHash        string                     `json:"content_hash"`
+	SourceRevision     int64                      `json:"source_revision"`
+	PolicyDigest       string                     `json:"policy_digest"`
+	ProjectIDs         []string                   `json:"project_ids"`
+	LabelIDs           []string                   `json:"label_ids"`
 	Attachments        []astaraDocumentAttachment `json:"attachments"`
-	CanonicalReference string                   `json:"canonical_reference"`
+	CanonicalReference string                     `json:"canonical_reference"`
 }
 
 type astaraDocumentAttachment struct {
@@ -166,7 +167,7 @@ func (h *AstaraControlPlaneHandler) UpsertDocument(c *gin.Context) {
 		return
 	}
 	var kb types.KnowledgeBase
-	if err := h.db.WithContext(c).First(&kb, "id = ?", kbID).Error; err != nil {
+	if err := h.db.WithContext(c.Request.Context()).First(&kb, "id = ?", kbID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "knowledge base not found"})
 			return
@@ -175,7 +176,7 @@ func (h *AstaraControlPlaneHandler) UpsertDocument(c *gin.Context) {
 		return
 	}
 
-	existing, err := findKnowledgeByExternalID(h.db.WithContext(c), kbID, system, id)
+	existing, err := findKnowledgeByExternalID(h.db.WithContext(c.Request.Context()), kbID, system, id)
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "document lookup failed"})
 		return
@@ -203,7 +204,7 @@ func (h *AstaraControlPlaneHandler) UpsertDocument(c *gin.Context) {
 	metadata := documentMetadata(&request)
 	existingID := ""
 
-	err = h.db.WithContext(c).Transaction(func(tx *gorm.DB) error {
+	err = h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
 		if existing != nil {
 			// Idempotent replay: same revision and same content hash means the
 			// provider already stores this exact snapshot.
@@ -288,10 +289,42 @@ func (h *AstaraControlPlaneHandler) UpsertDocument(c *gin.Context) {
 		return
 	}
 
-	created, err := findKnowledgeByExternalID(h.db.WithContext(c), kbID, system, id)
+	created, err := findKnowledgeByExternalID(h.db.WithContext(c.Request.Context()), kbID, system, id)
 	if err != nil || created == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "document upsert failed"})
 		return
+	}
+
+	// With a task queue available (production/acceptance), route the snapshot
+	// through the document-processing pipeline so chunks are embedded into
+	// the vector store; the handler's inline chunk rows above keep the
+	// source-contract atomicity for queue-less test wiring.
+	if h.taskEnqueuer != nil {
+		// The pipeline owns chunking + embedding; drop the inline snapshot
+		// chunks so the processed chunks are the single source (the inline
+		// rows remain the queue-less test contract).
+		_ = h.db.WithContext(c.Request.Context()).
+			Where("knowledge_id = ?", created.ID).Delete(&types.Chunk{}).Error
+		payload := types.DocumentProcessPayload{
+			RequestId:       uuid.NewString(),
+			TenantID:        kb.TenantID,
+			KnowledgeID:     created.ID,
+			KnowledgeBaseID: kbID,
+			Passages:        []string{request.Content},
+		}
+		payloadBytes, marshalErr := json.Marshal(payload)
+		if marshalErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "document upsert failed"})
+			return
+		}
+		if _, enqueueErr := h.taskEnqueuer.Enqueue(asynq.NewTask(types.TypeDocumentProcess, payloadBytes, asynq.MaxRetry(3))); enqueueErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "document upsert failed"})
+			return
+		}
+		// The pipeline flips the parse status; mark it pending so the
+		// document stays non-queryable until the pipeline completes.
+		_ = h.db.WithContext(c.Request.Context()).Model(created).
+			Updates(map[string]any{"parse_status": types.ParseStatusPending, "updated_at": time.Now().UTC()}).Error
 	}
 	c.JSON(http.StatusOK, documentResource(created))
 }
@@ -304,7 +337,7 @@ func (h *AstaraControlPlaneHandler) FindDocumentByExternalID(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid external identity"})
 		return
 	}
-	knowledge, err := findKnowledgeByExternalID(h.db.WithContext(c), kbID, system, id)
+	knowledge, err := findKnowledgeByExternalID(h.db.WithContext(c.Request.Context()), kbID, system, id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "document not found"})
@@ -325,7 +358,7 @@ func (h *AstaraControlPlaneHandler) FindDocument(c *gin.Context) {
 		return
 	}
 	var knowledge types.Knowledge
-	err := h.db.WithContext(c).Where("knowledge_base_id = ? AND id = ?", kbID, documentID).First(&knowledge).Error
+	err := h.db.WithContext(c.Request.Context()).Where("knowledge_base_id = ? AND id = ?", kbID, documentID).First(&knowledge).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "document not found"})
@@ -346,7 +379,7 @@ func (h *AstaraControlPlaneHandler) DeleteDocument(c *gin.Context) {
 		return
 	}
 	var deleted int64
-	err := h.db.WithContext(c).Transaction(func(tx *gorm.DB) error {
+	err := h.db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
 		result := tx.Where("knowledge_base_id = ? AND id = ?", kbID, documentID).Delete(&types.Knowledge{})
 		if result.Error != nil {
 			return result.Error
