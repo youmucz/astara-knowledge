@@ -6,7 +6,7 @@
 // regenerate the whole file — that burns tokens and often truncates.
 //
 // Design notes:
-//   - Same writable roots as write_sandbox_file: /workspace except
+//   - Same writable scope as write_sandbox_file: session sandbox except
 //     /workspace/input.
 //   - One input shape: every change is an entry in edits[]. Each entry resolves
 //     against the original content, so a batch is order-independent and
@@ -47,50 +47,10 @@ type SandboxFileEditor interface {
 
 var editSandboxFileTool = BaseTool{
 	name: ToolEditSandboxFile,
-	description: `Replace exact text in an existing sandbox file without rewriting the whole file.
-
-## Usage
-- Use this after ` + "`write_sandbox_file`" + ` (or a previous edit) when only a
-  few lines need to change — a wrong output path, a typo, a constant.
-- Every change goes in ` + "`edits`" + `, an array of
-  ` + "`{old_string, new_string}`" + ` — an array of one for a single change.
-- Changing several places in one file: send them all in ONE call. Do not call
-  this tool once per change.
-- ` + "`old_string`" + ` must match the file exactly, including whitespace and
-  quotes. Include a few surrounding lines so the match is unique.
-- Every ` + "`old_string`" + ` is matched against the ORIGINAL file, not against
-  the result of earlier entries, so entries must not overlap. If two changes
-  touch the same lines, merge them into one entry.
-- Keep each ` + "`old_string`" + ` as small as it can be while staying unique; do
-  not pad with unchanged lines to bridge distant edits.
-- Default: each snippet must occur exactly once. Set ` + "`replace_all`" + ` on an
-  entry only when you intentionally want every occurrence of it changed.
-- Do NOT call ` + "`write_sandbox_file`" + ` with the full file to fix one line.
-- ` + pythonQuoteGuidance + `
-
-## When to Use
-- A script failed because one path, import, or constant is wrong.
-- Renaming a variable or output filename that appears once (or everywhere
-  with ` + "`replace_all`" + `).
-- Deleting a short block by setting ` + "`new_string`" + ` to empty.
-
-## When NOT to Use
-- Creating a new file — use ` + "`write_sandbox_file`" + `.
-- Replacing most of the file — rewrite with ` + "`write_sandbox_file`" + `.
-- Editing under ` + "`/workspace/input`" + ` (attachments are read-only).
-- Binary files.
-
-## Path Rules
-- ` + "`path`" + ` MUST be an absolute path under ` + "`/workspace`" + `, not under
-  ` + "`/workspace/input`" + `, and not ` + "`/workspace`" + ` or ` + "`/workspace/output`" + `
-  themselves.
-
-## Size Handling
-` + fmt.Sprintf("- The file (and the result) must stay within %d bytes.", maxWriteSandboxBytes) + `
-
-## Returns
-- The path, how many replacements were made, and the new byte count.
-  File contents are not echoed back.`,
+	description: `Apply exact text replacements to an existing text file inside the session sandbox,
+excluding /workspace/input.
+Read the relevant content first. Send edits as an array, even for one replacement. Every old_string matches the original file, must be unique unless replace_all=true, and must not overlap another edit. Include enough surrounding text to identify the intended occurrence.
+All replacements are validated before writing; a failed match leaves the file unchanged. The result includes a diff. Use write_sandbox_file for new files.`,
 	schema: utils.GenerateSchema[EditSandboxFileInput](),
 }
 
@@ -136,23 +96,57 @@ func (l *sandboxEditList) UnmarshalJSON(data []byte) error {
 // attaches to. Every replacement goes in edits[], and a single-element array is
 // the ordinary way to change one thing.
 type EditSandboxFileInput struct {
-	Path  string          `json:"path" jsonschema:"Absolute sandbox path of an existing text file under /workspace (not /workspace/input)."`                                                                                                                                                                                   //nolint:lll // one-line struct tag
+	Path  string          `json:"path" jsonschema:"Absolute or /workspace-relative sandbox path of an existing text file (not /workspace/input)."`                                                                                                                                                                             //nolint:lll // one-line struct tag
 	Edits sandboxEditList `json:"edits" jsonschema:"Replacements to apply, as an array even for a single change. Each old_string is matched against the original file, not against the result of earlier edits, so they must not overlap. Send every change to one file in one call rather than calling the tool repeatedly."` //nolint:lll // one-line struct tag
 }
 
 // EditSandboxFileTool applies an exact string replacement to a sandbox file.
 type EditSandboxFileTool struct {
 	BaseTool
+	sessionBound
 	editor SandboxFileEditor
 }
 
 // NewEditSandboxFileTool constructs the tool. `editor` MUST NOT be nil.
 func NewEditSandboxFileTool(editor SandboxFileEditor) *EditSandboxFileTool {
 	return &EditSandboxFileTool{
-		BaseTool: editSandboxFileTool,
-		editor:   editor,
+		BaseTool: BaseTool{
+			name:   editSandboxFileTool.name,
+			schema: editSandboxFileTool.schema,
+		},
+		editor: editor,
 	}
 }
+
+// Description is built from the session sandbox layout so host paths never
+// hard-code /workspace.
+func (t *EditSandboxFileTool) Description() string {
+	layout := t.boundLayout()
+	if layout.IsHost() {
+		return fmt.Sprintf(hostEditSandboxFileDescription, layoutRootOrGeneric(layout))
+	}
+	return rewriteRemoteWorkspaceCopy(editSandboxFileTool.description, layout)
+}
+
+// Parameters rewrites workspace paths in the schema to match the session layout.
+func (t *EditSandboxFileTool) Parameters() json.RawMessage {
+	return schemaForLayout(editSandboxFileTool.schema, t.boundLayout())
+}
+
+func (t *EditSandboxFileTool) boundLayout() sandbox.WorkspaceLayout {
+	if t == nil {
+		return sandbox.RemoteWorkspaceLayout()
+	}
+	return t.describeLayout(t.editor)
+}
+
+const hostEditSandboxFileDescription = "Apply exact text replacements to an existing text file in %s.\n" +
+	"Read the relevant content first. Send edits as an array, even for one replacement. \n" +
+	"Every old_string matches the original file, must be unique unless replace_all=true, " +
+	"and must not overlap another edit. \n" +
+	"Include enough surrounding text to identify the intended occurrence.\n" +
+	"All replacements are validated before writing; a failed match leaves the file unchanged. " +
+	"The result includes a diff. Use write_sandbox_file for new files."
 
 // Execute reads the file, applies the replacement, and writes it back.
 func (t *EditSandboxFileTool) Execute(ctx context.Context, args json.RawMessage) (*types.ToolResult, error) {
@@ -173,14 +167,6 @@ func (t *EditSandboxFileTool) Execute(ctx context.Context, args json.RawMessage)
 		}, nil
 	}
 
-	trimmed := strings.TrimSpace(input.Path)
-	if trimmed == "" {
-		return &types.ToolResult{
-			Success: false,
-			Error:   "path is required; edit a file under /workspace (not /workspace/input)",
-		}, nil
-	}
-
 	sessionID := resolveSessionID(ctx)
 	if sessionID == "" {
 		return &types.ToolResult{
@@ -189,12 +175,28 @@ func (t *EditSandboxFileTool) Execute(ctx context.Context, args json.RawMessage)
 		}, nil
 	}
 
-	clean := path.Clean(trimmed)
-	rootDir, ok := matchingWritableRoot(clean)
+	layout, layoutErr := executeWorkspaceLayout(ctx, sessionID, t.editor)
+	if layoutErr != nil {
+		return layoutErr, nil
+	}
+
+	trimmed := strings.TrimSpace(input.Path)
+	if trimmed == "" {
+		return &types.ToolResult{
+			Success: false,
+			Error: fmt.Sprintf(
+				"path is required; edit a file inside the session sandbox (not %s)",
+				modelSafeLayoutPath(layout.InputDir, "the attachment directory"),
+			),
+		}, nil
+	}
+
+	clean := resolveIn(layout, trimmed)
+	rootDir, ok := writableRootIn(layout, clean)
 	if !ok {
 		return &types.ToolResult{
 			Success: false,
-			Error:   workspaceWriteScopeError(input.Path),
+			Error:   writeScopeErrorIn(layout, input.Path),
 		}, nil
 	}
 
@@ -244,7 +246,8 @@ func (t *EditSandboxFileTool) Execute(ctx context.Context, args json.RawMessage)
 	if isBinaryShellOutput(string(raw)) {
 		return &types.ToolResult{
 			Success: false,
-			Error:   "binary files cannot be edited; write a text script and have it produce binary artifacts under /workspace/output",
+			Error: "binary files cannot be edited; write a text script and have it produce binary artifacts under " +
+				modelSafeLayoutPath(layout.OutputDir, "the artifact output directory"),
 		}, nil
 	}
 
@@ -326,9 +329,10 @@ func (t *EditSandboxFileTool) Execute(ctx context.Context, args json.RawMessage)
 	}
 	attachSandboxDiffStats(data, added, removed)
 	return &types.ToolResult{
-		Success: true,
-		Output:  output,
-		Data:    data,
+		Success:     true,
+		Output:      output,
+		OutputFiles: sandboxOutputLinksIn(layoutOutputDir(layout), clean),
+		Data:        data,
 	}, nil
 }
 

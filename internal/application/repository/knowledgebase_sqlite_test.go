@@ -17,6 +17,8 @@ import (
 // `type:jsonb`, which AutoMigrate does not map cleanly onto SQLite.
 const knowledgeBasesTestDDL = `
 CREATE TABLE IF NOT EXISTS knowledge_bases (
+    profile_config TEXT,
+    generated_profile TEXT,
     id VARCHAR(36) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
@@ -44,7 +46,11 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     creator_id VARCHAR(36),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    deleted_at DATETIME
+    deleted_at DATETIME,
+    -- Astara external identity (sqlite migration 000031). GORM includes every
+    -- model field in an INSERT, so the DDL must carry the model's columns.
+    external_system VARCHAR(64) NULL,
+    external_id VARCHAR(255) NULL
 );
 `
 

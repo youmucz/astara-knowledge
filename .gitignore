@@ -61,3 +61,9 @@ miniprogram/project.private.config.json
 # Staging dir for the Docker sandbox self-check probe (removed after each run)
 .weknora-sandbox-check-*
 dist-embedded/
+
+# Locally built BrowserSkill runtime and extension bundles
+/artifacts/browserskill/
+
+# Local upstream-sync working notes (not part of the product)
+.astara/

@@ -1,18 +1,30 @@
+# syntax=docker/dockerfile:1
 # =========================
 # 构建阶段（轻量化：仅文档解析 + 图片提取，无 OCR/VLM）
 # =========================
 FROM python:3.10.18-bookworm AS builder
 
 ARG APT_MIRROR=""
+# Scheme-agnostic rewrite: match deb.debian.org regardless of the preceding
+# http:// or https://, so an https mirror can be expressed at all. The base
+# image's debian.sources lists both deb.debian.org (main) and
+# deb.debian.org/debian-security (bookworm-security), so one rewrite covers
+# both and no security.debian.org rule is needed. Trailing slashes in
+# APT_MIRROR are trimmed so the substitution yields well-formed URIs.
 RUN if [ -n "$APT_MIRROR" ]; then \
-        sed -i "s@http://deb.debian.org@${APT_MIRROR}@g" /etc/apt/sources.list.d/debian.sources && \
-        sed -i "s@http://security.debian.org@${APT_MIRROR}@g" /etc/apt/sources.list.d/debian.sources; \
+        APT_MIRROR="${APT_MIRROR%/}" && \
+        sed -i "s@https\?://deb\.debian\.org@${APT_MIRROR}@g" /etc/apt/sources.list.d/debian.sources && \
+        grep -qF "${APT_MIRROR}" /etc/apt/sources.list.d/debian.sources; \
     fi
 
 WORKDIR /app
 
 # 安装构建依赖
-RUN apt-get update && apt-get install -y \
+# Cache mounts make retries resumable: downloaded .debs and index lists survive
+# a failed build, so a network hiccup no longer costs the whole download again.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update && apt-get install -y \
     gcc \
     python3-dev \
     libjpeg-dev \
@@ -23,8 +35,7 @@ RUN apt-get update && apt-get install -y \
     wget \
     antiword \
     curl \
-    unzip \
-    && rm -rf /var/lib/apt/lists/*
+    unzip
 
 # 检查是否存在本地protoc安装包，如果存在则离线安装，否则在线安装
 ARG TARGETARCH
@@ -82,15 +93,26 @@ RUN chmod +x docreader/scripts/generate_proto.sh && \
 FROM python:3.10.18-bookworm AS runner
 
 ARG APT_MIRROR=""
+# Scheme-agnostic rewrite: match deb.debian.org regardless of the preceding
+# http:// or https://, so an https mirror can be expressed at all. The base
+# image's debian.sources lists both deb.debian.org (main) and
+# deb.debian.org/debian-security (bookworm-security), so one rewrite covers
+# both and no security.debian.org rule is needed. Trailing slashes in
+# APT_MIRROR are trimmed so the substitution yields well-formed URIs.
 RUN if [ -n "$APT_MIRROR" ]; then \
-        sed -i "s@http://deb.debian.org@${APT_MIRROR}@g" /etc/apt/sources.list.d/debian.sources && \
-        sed -i "s@http://security.debian.org@${APT_MIRROR}@g" /etc/apt/sources.list.d/debian.sources; \
+        APT_MIRROR="${APT_MIRROR%/}" && \
+        sed -i "s@https\?://deb\.debian\.org@${APT_MIRROR}@g" /etc/apt/sources.list.d/debian.sources && \
+        grep -qF "${APT_MIRROR}" /etc/apt/sources.list.d/debian.sources; \
     fi
 
 WORKDIR /app
 
 # 安装运行时依赖（已移除 OCR/PaddleOCR 相关依赖）
-RUN apt-get update && apt-get install -y \
+# Same cache-mount rationale as the builder stage above. This is the heavy
+# layer (~477 MB, 509 packages: libreoffice + fonts-noto-*).
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update && apt-get install -y \
     libjpeg62-turbo \
     wget \
     gnupg \
@@ -108,8 +130,7 @@ RUN apt-get update && apt-get install -y \
     libglu1-mesa \
     libsm6 \
     libreoffice \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+    curl
 
 # 安装 grpc_health_probe
 ARG TARGETARCH

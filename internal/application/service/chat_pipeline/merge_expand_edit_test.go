@@ -37,6 +37,31 @@ func (r *expandChunkRepo) ListChunksByID(
 	return chunks, nil
 }
 
+func (r *expandChunkRepo) ListChunksByIDOnly(
+	_ context.Context, ids []string,
+) ([]*types.Chunk, error) {
+	chunks := make([]*types.Chunk, 0, len(ids))
+	for _, id := range ids {
+		if chunk := r.chunks[id]; chunk != nil {
+			chunks = append(chunks, chunk)
+		}
+	}
+	return chunks, nil
+}
+
+func (r *expandChunkRepo) ListChunksByParentIDsOnly(
+	_ context.Context, parentIDs []string,
+) ([]*types.Chunk, error) {
+	var chunks []*types.Chunk
+	for _, parentID := range parentIDs {
+		chunks = append(chunks, r.children[parentID]...)
+	}
+	return chunks, nil
+}
+
+// A chunk fetched by id can belong to another document than the result that
+// asked for it (shared-KB lookups are deliberately not tenant scoped). The
+// expansion must drop that foreign body instead of splicing it into context.
 func TestExpandShortContextRejectsStaleChunkDocumentMapping(t *testing.T) {
 	repo := &expandChunkRepo{chunks: map[string]*types.Chunk{
 		"base": {ID: "base", KnowledgeID: "foreign", ChunkType: types.ChunkTypeText, Content: "private body"},

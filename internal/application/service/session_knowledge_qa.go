@@ -25,13 +25,32 @@ func (s *sessionService) KnowledgeQA(
 	req *types.QARequest,
 	eventBus *event.EventBus,
 ) error {
+	webSearchEnabled := resolveWebSearchEnabled(req)
 	logger.Infof(
 		ctx,
 		"Knowledge base question answering parameters, session ID: %s, query: %s, webSearchEnabled: %v",
 		req.Session.ID,
 		req.Query,
-		req.WebSearchEnabled,
+		webSearchEnabled,
 	)
+	// IM/MCP call KnowledgeQA without executeQA's send-side lease, so hold one
+	// for the pipeline. HTTP send already took it before persisting the turn
+	// and says so on the request; taking a second would double every rewind
+	// check and lease round trip on the hot send path.
+	if !req.TurnLeaseHeld {
+		if err := s.RejectSendIfRewinding(ctx, req.Session.ID); err != nil {
+			return err
+		}
+		configID := ""
+		if req.CustomAgent != nil {
+			configID = req.CustomAgent.Config.SandboxConfigID
+		}
+		releaseTurn, holdErr := s.holdSandboxTurn(ctx, req.Session.ID, configID)
+		if holdErr != nil {
+			return holdErr
+		}
+		defer releaseTurn()
+	}
 
 	// Span the request setup (KB / model resolution, search target building,
 	// agent override application). This covers the visible gap between trace
@@ -125,7 +144,7 @@ func (s *sessionService) KnowledgeQA(
 			EnableQueryExpansion:    s.cfg.Conversation.EnableQueryExpansion,
 			RewritePromptSystem:     s.cfg.Conversation.RewritePromptSystem,
 			RewritePromptUser:       s.cfg.Conversation.RewritePromptUser,
-			WebSearchEnabled:        req.WebSearchEnabled,
+			WebSearchEnabled:        webSearchEnabled,
 			WebSearchProviderID:     s.resolveWebSearchProviderID(ctx, req, retrievalTenantID),
 			WebSearchMaxResults:     s.resolveWebSearchMaxResults(ctx, req),
 			WebFetchEnabled:         s.resolveWebFetchEnabled(req),
@@ -152,6 +171,9 @@ func (s *sessionService) KnowledgeQA(
 	// Apply custom agent overrides (system prompt, temperature, retrieval params,
 	// rewrite, fallback, FAQ strategy, history turns)
 	s.applyAgentOverridesToChatManage(ctx, req.CustomAgent, chatManage)
+	applyRequestReasoningEffort(
+		req.ReasoningEffort, &chatManage.SummaryConfig.Thinking, &chatManage.SummaryConfig.ReasoningEffort,
+	)
 
 	// Stateless answer seam (POST /astara/answer): no provider session is
 	// created or recalled. History loading is disabled regardless of config,
@@ -176,7 +198,7 @@ func (s *sessionService) KnowledgeQA(
 	// empty but produce SearchTargets, so the unified targets must participate in
 	// this decision or the request is incorrectly downgraded to pure chat.
 	hasKB := types.HasKnowledgeRetrievalScope(searchTargets, knowledgeBaseIDs, knowledgeIDs)
-	needsRAG := hasKB || req.WebSearchEnabled
+	needsRAG := hasKB || webSearchEnabled
 	hasHistory := chatManage.MaxRounds > 0
 
 	var pipeline []types.EventType
@@ -208,7 +230,7 @@ func (s *sessionService) KnowledgeQA(
 			Add(types.QUERY_UNDERSTAND).
 			Add(types.CHUNK_SEARCH_PARALLEL).
 			Add(types.CHUNK_RERANK).
-			AddIf(req.WebSearchEnabled, types.WEB_FETCH).
+			AddIf(webSearchEnabled, types.WEB_FETCH).
 			Add(types.CHUNK_MERGE).
 			Add(types.FILTER_TOP_K).
 			AddIf(chatManage.DataAnalysisEnabled, types.DATA_ANALYSIS).
@@ -218,7 +240,7 @@ func (s *sessionService) KnowledgeQA(
 	}
 
 	logger.Infof(ctx, "Assembled pipeline (%d stages), hasKB=%v, webSearch=%v, history=%v",
-		len(pipeline), hasKB, req.WebSearchEnabled, hasHistory)
+		len(pipeline), hasKB, webSearchEnabled, hasHistory)
 
 	// Start knowledge QA event processing (set session tenant so pipeline session/message lookups use session owner)
 	ctx = context.WithValue(ctx, types.SessionTenantIDContextKey, req.Session.TenantID)
@@ -456,6 +478,7 @@ func (s *sessionService) buildSearchTargets(
 	knowledgeIDs []string,
 	tagScopes []types.TagScope,
 ) (types.SearchTargets, error) {
+	caller := types.CallerFromContext(ctx)
 	var targets types.SearchTargets
 	tagIDsByKB := mergeTagScopesByKB(tagScopes)
 
@@ -466,7 +489,7 @@ func (s *sessionService) buildSearchTargets(
 	fullKBSet := make(map[string]bool)
 
 	// First pass: batch-fetch KBs, then resolve tenant per ID (tenant scope already set by caller)
-	callerTenantRole := types.TenantRoleFromContext(ctx)
+	permissions := kbReadPermissions(ctx, s.kbShareService)
 	kbIDsToFetch := append([]string(nil), knowledgeBaseIDs...)
 	for kbID := range tagIDsByKB {
 		kbIDsToFetch = append(kbIDsToFetch, kbID)
@@ -485,25 +508,17 @@ func (s *sessionService) buildSearchTargets(
 			}
 		}
 	}
-	userID, _ := types.UserIDFromContext(ctx)
 	resolveKBTenant := func(kbID string) uint64 {
 		if kbTenantMap[kbID] != 0 {
 			return kbTenantMap[kbID]
 		}
 		kb := kbByID[kbID]
-		if kb == nil {
-			kbTenantMap[kbID] = tenantID
-		} else if kb.TenantID == tenantID {
-			kbTenantMap[kbID] = tenantID
-		} else if s.kbShareService != nil && userID != "" {
-			hasAccess, _ := s.kbShareService.HasTenantKBPermission(ctx, kbID, tenantID, callerTenantRole, types.OrgRoleViewer)
-			if hasAccess {
+		kbTenantMap[kbID] = caller.TenantID
+		if kb != nil {
+			kbTenantMap[kbID] = 0
+			if allowed, err := permissions.Check(kbID, kb.TenantID, types.OrgRoleViewer); err == nil && allowed {
 				kbTenantMap[kbID] = kb.TenantID
-			} else {
-				kbTenantMap[kbID] = tenantID
 			}
-		} else {
-			kbTenantMap[kbID] = tenantID
 		}
 		return kbTenantMap[kbID]
 	}
@@ -512,6 +527,9 @@ func (s *sessionService) buildSearchTargets(
 		for _, kbID := range knowledgeBaseIDs {
 			fullKBSet[kbID] = true
 			kbTenant := resolveKBTenant(kbID)
+			if kbTenant == 0 {
+				continue
+			}
 			if len(tagIDsByKB[kbID]) > 0 {
 				continue
 			}
@@ -574,6 +592,9 @@ func (s *sessionService) buildSearchTargets(
 			continue
 		}
 		kbTenant := resolveKBTenant(kbID)
+		if kbTenant == 0 {
+			continue
+		}
 		kb := kbByID[kbID]
 		explicitKnowledgeIDs := uniqueNonEmptyStrings(kbToKnowledgeIDs[kbID])
 
@@ -996,6 +1017,10 @@ func (s *sessionService) handleModelFallback(ctx context.Context, chatManage *ty
 
 	// Start streaming response
 	fallbackMessages, modelContext := prepareFallbackMessages(chatManage, promptContent)
+	if leaks := modelContext.LeakedIdentifiers(fallbackMessages); len(leaks) > 0 {
+		logger.Warnf(ctx, "[Fallback][ModelContext] %d message field(s) carry raw identifiers after encoding: %s",
+			len(leaks), modelcontext.SummarizeLeaks(leaks))
+	}
 	responseChan, err := chatModel.ChatStream(ctx, fallbackMessages, opt)
 	if err != nil {
 		logger.Errorf(ctx, "Failed to start streaming fallback response: %v, falling back to fixed response", err)
@@ -1039,7 +1064,11 @@ func buildFallbackMessages(chatManage *types.ChatManage, promptContent string) [
 	// forbids prior knowledge ("reply ONLY based on retrieved information"),
 	// which directly contradicts the fallback's purpose.
 	if strings.TrimSpace(promptContent) != "" {
-		messages = append(messages, chat.Message{Role: "system", Content: promptContent})
+		messages = append(messages, chat.Message{
+			Role: "system",
+			Content: promptContent + "\n\n" + types.SourceDataBoundaryPrompt +
+				"\n\n" + types.SourcedAnswerOutputPrompt,
+		})
 	}
 
 	messages = chatpipeline.AppendHistoryMessages(messages, chatManage.History)
@@ -1173,6 +1202,10 @@ func (s *sessionService) consumeFallbackStream(
 			if response.Done {
 				response.Content += decoder.Flush()
 			}
+			truncated := response.Done && chatpipeline.IsLengthFinishReason(response.FinishReason)
+			if truncated && strings.TrimSpace(finalContent+response.Content) == "" {
+				response.Content = chatpipeline.EmptyTruncatedAnswerFallback
+			}
 			finalContent += response.Content
 			if err := eventBus.Emit(ctx, types.Event{
 				ID:        fallbackID,
@@ -1182,6 +1215,7 @@ func (s *sessionService) consumeFallbackStream(
 					Content:    response.Content,
 					Done:       response.Done,
 					IsFallback: true,
+					Truncated:  truncated,
 				},
 			}); err != nil {
 				logger.Errorf(ctx, "Failed to emit fallback answer chunk event: %v", err)
@@ -1266,6 +1300,17 @@ func (s *sessionService) resolveWebSearchProviderID(ctx context.Context, req *ty
 		}
 	}
 	return ""
+}
+
+// resolveWebSearchEnabled combines the request switch with the agent's own
+// setting, as agent mode does: the switch only opts a turn in, so a client
+// cannot turn on a search (and spend the agent workspace's provider quota)
+// that the agent disables. Requests without an agent keep the switch.
+func resolveWebSearchEnabled(req *types.QARequest) bool {
+	if req.CustomAgent != nil {
+		return req.CustomAgent.Config.WebSearchEnabled && req.WebSearchEnabled
+	}
+	return req.WebSearchEnabled
 }
 
 // resolveWebFetchEnabled returns whether auto web fetch is enabled for this request.

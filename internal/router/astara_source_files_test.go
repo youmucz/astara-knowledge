@@ -66,7 +66,10 @@ func TestPresignedDiagnosticEmbeddedAdmissionClosed(t *testing.T) {
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), types.EmbeddedSessionContextKey, true))
 		c.Next()
 	})
-	servePresignedPreview(engine, nil, nil)
+	// Upstream added a *config.Config parameter for the Admin role guard.
+	// Nil is safe here: RequireNativeSourceRoute aborts the embedded request
+	// before the role middleware ever reads it.
+	servePresignedPreview(engine, nil, nil, nil)
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, httptest.NewRequest("GET", "/api/v1/files/presigned-preview?file_path=private-object", nil))
 	require.Equal(t, 404, rec.Code)

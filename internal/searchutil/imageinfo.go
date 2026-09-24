@@ -58,11 +58,34 @@ func CollectImageInfoByChunkIDs(
 	tenantID uint64,
 	chunkIDs []string,
 ) map[string]string {
+	return collectImageInfoByChunkIDs(chunkIDs, func(parentIDs []string) ([]*types.Chunk, error) {
+		return chunkRepo.ListChunksByParentIDs(ctx, tenantID, parentIDs)
+	})
+}
+
+// CollectImageInfoByChunkIDsOnly is the shared-KB variant of
+// CollectImageInfoByChunkIDs: the chunk IDs can belong to an org-shared KB
+// owned by another workspace, so the child lookup must not filter by the
+// caller's tenant (#3342).
+func CollectImageInfoByChunkIDsOnly(
+	ctx context.Context,
+	chunkRepo interfaces.ChunkRepository,
+	chunkIDs []string,
+) map[string]string {
+	return collectImageInfoByChunkIDs(chunkIDs, func(parentIDs []string) ([]*types.Chunk, error) {
+		return chunkRepo.ListChunksByParentIDsOnly(ctx, parentIDs)
+	})
+}
+
+func collectImageInfoByChunkIDs(
+	chunkIDs []string,
+	listChildren func(parentIDs []string) ([]*types.Chunk, error),
+) map[string]string {
 	if len(chunkIDs) == 0 {
 		return nil
 	}
 
-	children, err := chunkRepo.ListChunksByParentIDs(ctx, tenantID, chunkIDs)
+	children, err := listChildren(chunkIDs)
 	if err != nil || len(children) == 0 {
 		return nil
 	}
@@ -125,7 +148,7 @@ func CollectImageInfoByChunkIDs(
 	}
 
 	if len(textChildIDs) > 0 {
-		grandChildren, err := chunkRepo.ListChunksByParentIDs(ctx, tenantID, textChildIDs)
+		grandChildren, err := listChildren(textChildIDs)
 		if err == nil {
 			for _, gc := range grandChildren {
 				if !gc.IsEnabled {
@@ -229,6 +252,39 @@ func MergeImageInfoJSON(perChunk map[string]string) string {
 		return ""
 	}
 	return string(data)
+}
+
+// ClearImageInfoTextMatchingBody removes the OCR or caption field that exactly
+// matches recognized from image_info. Merge re-attaches that body onto Content
+// for image_ocr / image_caption hits; chat enrichment would otherwise inject
+// the same text again from ImageInfo.
+func ClearImageInfoTextMatchingBody(imageInfoJSON, recognized, chunkType string) string {
+	if imageInfoJSON == "" || recognized == "" {
+		return imageInfoJSON
+	}
+	var infos []types.ImageInfo
+	if err := json.Unmarshal([]byte(imageInfoJSON), &infos); err != nil || len(infos) == 0 {
+		return imageInfoJSON
+	}
+	changed := false
+	for i := range infos {
+		switch chunkType {
+		case string(types.ChunkTypeImageOCR):
+			if infos[i].OCRText == recognized {
+				infos[i].OCRText = ""
+				changed = true
+			}
+		case string(types.ChunkTypeImageCaption):
+			if infos[i].Caption == recognized {
+				infos[i].Caption = ""
+				changed = true
+			}
+		}
+	}
+	if !changed {
+		return imageInfoJSON
+	}
+	return marshalImageInfos(infos)
 }
 
 // EnrichContentWithImageInfo embeds image info as XML tags into text content.
