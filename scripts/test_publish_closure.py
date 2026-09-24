@@ -28,7 +28,7 @@ def inputs(**overrides):
     base = {
         "release": {
             "version": "0.1.0-astara.1",
-            "upstream_baseline": "v0.8.0",
+            "upstream_baseline": "v0.8.2",
             "upstream_commit": "1" * 40,
             "feature_profile": "astara-knowledge",
         },

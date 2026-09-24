@@ -6,21 +6,44 @@ subtree of the other.
 
 ## Upstream baseline and sync
 
-The `0.1.0-astara.1` release is based on Tencent/WeKnora `v0.8.0`, immutable
-commit `1edcd54b43606d9079bb36650efe3f68707a79ea`. A local checkout should keep:
+The `0.1.0-astara.1` release tracks upstream main at commit
+`3e8b0bfc80b845b2d4b2ed683994748741450a97`, the v0.8.2 development line
+(upstream documents v0.8.2 but has not created the tag, so the commit is the
+authoritative anchor). The previous baseline was the v0.8.0 tag,
+`1edcd54b43606d9079bb36650efe3f68707a79ea`. A local checkout should keep:
 
 ```bash
 git remote add upstream https://github.com/Tencent/WeKnora.git
-git fetch upstream refs/tags/v0.8.0
-git tag upstream/v0.8.0 1edcd54b43606d9079bb36650efe3f68707a79ea
+git fetch upstream main
+git update-ref refs/remotes/upstream/main 3e8b0bfc80b845b2d4b2ed683994748741450a97
 ```
 
-For a later upstream sync, fetch the candidate tag, verify its commit and
-release notes, create a dedicated branch from that tag, then replay only the
-Astara profile, identity, contract, upsert, ACL, and integration patches. Run
-the Knowledge contract workflow and Plane-to-Knowledge Docker suite before
-updating `release/manifest.json`. Never move an existing release tag or reuse
-an implementation version.
+Upstream's git transport is reachable over SSH when HTTPS is blocked:
+
+```bash
+git fetch git@github.com:Tencent/WeKnora.git main
+```
+
+For a later upstream sync, fetch the candidate commit, verify it and its
+release notes, merge it into `main` as a merge commit, and resolve conflicts by
+taking upstream's structure and re-applying the fork's intent into it — in
+particular the knowledge-only profile guards in `internal/container` and
+`internal/router`. Renumber any fork migration that collides with a new
+upstream version (see the migration note below). Run the Knowledge contract
+workflow and Plane-to-Knowledge Docker suite before updating
+`release/manifest.json`. Never move an existing release tag or reuse an
+implementation version.
+
+## Migration numbering
+
+The fork's migrations are renumbered past upstream's range so a fork-only
+migration can never share a version with an upstream one: versioned
+`000111`-`000113` (external identity, embedded identity, document identity) and
+SQLite `000031`-`000033`. Upstream's own `000091`-`000093` / `000013`-`000015`
+are unrelated migrations at those versions. `golang-migrate` refuses to load a
+directory with a duplicate version, so a collision fails every deployment.
+`internal/database/migration_sqlite_versioned_schema_test.go` pins the
+resulting `expectedSQLiteMigrationVersion` (33).
 
 ## Release verification
 

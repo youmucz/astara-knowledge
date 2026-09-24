@@ -627,12 +627,14 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewModelHandler))
 	must(container.Provide(handler.NewInitializationHandler))
 	must(container.Provide(handler.NewAuthHandler))
-	// SystemHandler is profile-aware and registered in both branches; the
-	// MCP surface is a prohibited feature, so its handlers need the MCP
+	// The SystemHandler is execution-oriented (its Neo4j and tenant-sandbox
+	// dependencies do not exist under the knowledge-only profile), so it keeps
+	// the local guard; the profile-aware Astara system routes nil-check it.
+	// The MCP surface is likewise prohibited, so its handlers need the MCP
 	// services, the approval gate and the agent-share service, all of which
 	// only exist in the unrestricted branch.
-	must(container.Provide(handler.NewSystemHandler))
 	if !knowledgeOnly {
+		must(container.Provide(handler.NewSystemHandler))
 		// Dig resolves exact types; adapt the registered service to the handler's
 		// narrower SharedAgentLookup interface at the composition boundary.
 		must(container.Provide(func(
