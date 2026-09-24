@@ -426,88 +426,88 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		// each agent turn. The factory returns nil when the sandbox backend does
 		// not support per-session file inspection; downstream code guards on nil.
 		must(container.Provide(service.NewArtifactCollectorFromSandboxManager))
+
+		// WorkspaceCheckpointer commits the sandbox /workspace after each agent
+		// turn so session fork can roll a forked sandbox back to a given message.
+		// The process-wide Manager is DisabledManager, so the runner and ID lookup
+		// go through the session pin + per-tenant resolver — the same path
+		// ArtifactCollector already uses. Direct Manager type-asserts still win
+		// when a deployment injects a SessionBoundManager as the process default.
+		must(container.Provide(func(
+			pinner *service.SessionSandboxPinner,
+			host service.HostSandboxManager,
+		) *service.HostSessionResolver {
+			return service.NewHostSessionResolver(pinner, host.Manager)
+		}))
+		must(container.Provide(func(
+			mgr sandbox.Manager,
+			resolver sandbox.TenantSandboxResolver,
+			pinner *service.SessionSandboxPinner,
+			host *service.HostSessionResolver,
+		) *service.PinnedSessionSandbox {
+			return service.NewPinnedSessionSandbox(pinner, resolver, mgr, host)
+		}))
+		must(container.Provide(func(
+			mgr sandbox.Manager,
+			pinned *service.PinnedSessionSandbox,
+		) *service.WorkspaceCheckpointer {
+			if runner, ok := mgr.(service.SandboxShellRunner); ok {
+				return service.NewWorkspaceCheckpointer(runner)
+			}
+			return service.NewWorkspaceCheckpointer(pinned)
+		}))
+		must(container.Provide(func(
+			mgr sandbox.Manager,
+			pinned *service.PinnedSessionSandbox,
+		) session.SandboxIDLookup {
+			if lookup, ok := mgr.(session.SandboxIDLookup); ok {
+				return lookup
+			}
+			if pinned == nil {
+				return nil
+			}
+			return pinned
+		}))
+		must(container.Provide(func(
+			mgr sandbox.Manager,
+			pinned *service.PinnedSessionSandbox,
+		) service.SessionForkSandboxPort {
+			if port, ok := mgr.(service.SessionForkSandboxPort); ok {
+				return port
+			}
+			if pinned == nil {
+				return nil
+			}
+			return pinned
+		}))
+		must(container.Provide(service.NewSessionForkServiceFromRepos))
+		must(container.Provide(func(
+			mgr sandbox.Manager,
+			pinned *service.PinnedSessionSandbox,
+		) service.SessionRewindSandboxPort {
+			if port, ok := mgr.(service.SessionRewindSandboxPort); ok {
+				return port
+			}
+			if pinned == nil {
+				return nil
+			}
+			return pinned
+		}))
+		must(container.Provide(service.NewSessionBusyGate))
+		must(container.Provide(service.NewSessionRewindServiceFromRepos))
+
+		// SandboxTerminalService opens interactive PTYs on session sandboxes for
+		// the frontend terminal panel. First-use provisioning takes a sandbox
+		// config ID already resolved by the WebSocket handler (own or shared agent).
+		must(container.Provide(service.NewSandboxTerminalService))
+		// One-shot desktop handshake tickets. Falls back to an in-process store
+		// when Redis is absent (Lite mode), same as the binding store.
+		must(container.Provide(service.NewSandboxDesktopTicketStore))
+		must(container.Provide(service.NewSandboxDesktopLastStore))
+		// Desktop relay. It rides SandboxTerminalService's resolution path so the
+		// desktop always lands on the session's existing sandbox.
+		must(container.Provide(service.NewSandboxDesktopService))
 	}
-
-	// WorkspaceCheckpointer commits the sandbox /workspace after each agent
-	// turn so session fork can roll a forked sandbox back to a given message.
-	// The process-wide Manager is DisabledManager, so the runner and ID lookup
-	// go through the session pin + per-tenant resolver — the same path
-	// ArtifactCollector already uses. Direct Manager type-asserts still win
-	// when a deployment injects a SessionBoundManager as the process default.
-	must(container.Provide(func(
-		pinner *service.SessionSandboxPinner,
-		host service.HostSandboxManager,
-	) *service.HostSessionResolver {
-		return service.NewHostSessionResolver(pinner, host.Manager)
-	}))
-	must(container.Provide(func(
-		mgr sandbox.Manager,
-		resolver sandbox.TenantSandboxResolver,
-		pinner *service.SessionSandboxPinner,
-		host *service.HostSessionResolver,
-	) *service.PinnedSessionSandbox {
-		return service.NewPinnedSessionSandbox(pinner, resolver, mgr, host)
-	}))
-	must(container.Provide(func(
-		mgr sandbox.Manager,
-		pinned *service.PinnedSessionSandbox,
-	) *service.WorkspaceCheckpointer {
-		if runner, ok := mgr.(service.SandboxShellRunner); ok {
-			return service.NewWorkspaceCheckpointer(runner)
-		}
-		return service.NewWorkspaceCheckpointer(pinned)
-	}))
-	must(container.Provide(func(
-		mgr sandbox.Manager,
-		pinned *service.PinnedSessionSandbox,
-	) session.SandboxIDLookup {
-		if lookup, ok := mgr.(session.SandboxIDLookup); ok {
-			return lookup
-		}
-		if pinned == nil {
-			return nil
-		}
-		return pinned
-	}))
-	must(container.Provide(func(
-		mgr sandbox.Manager,
-		pinned *service.PinnedSessionSandbox,
-	) service.SessionForkSandboxPort {
-		if port, ok := mgr.(service.SessionForkSandboxPort); ok {
-			return port
-		}
-		if pinned == nil {
-			return nil
-		}
-		return pinned
-	}))
-	must(container.Provide(service.NewSessionForkServiceFromRepos))
-	must(container.Provide(func(
-		mgr sandbox.Manager,
-		pinned *service.PinnedSessionSandbox,
-	) service.SessionRewindSandboxPort {
-		if port, ok := mgr.(service.SessionRewindSandboxPort); ok {
-			return port
-		}
-		if pinned == nil {
-			return nil
-		}
-		return pinned
-	}))
-	must(container.Provide(service.NewSessionBusyGate))
-	must(container.Provide(service.NewSessionRewindServiceFromRepos))
-
-	// SandboxTerminalService opens interactive PTYs on session sandboxes for
-	// the frontend terminal panel. First-use provisioning takes a sandbox
-	// config ID already resolved by the WebSocket handler (own or shared agent).
-	must(container.Provide(service.NewSandboxTerminalService))
-	// One-shot desktop handshake tickets. Falls back to an in-process store
-	// when Redis is absent (Lite mode), same as the binding store.
-	must(container.Provide(service.NewSandboxDesktopTicketStore))
-	must(container.Provide(service.NewSandboxDesktopLastStore))
-	// Desktop relay. It rides SandboxTerminalService's resolution path so the
-	// desktop always lands on the session's existing sandbox.
-	must(container.Provide(service.NewSandboxDesktopService))
 
 	logger.Debugf(ctx, "[Container] Registering task enqueuer...")
 	redisAvailable := os.Getenv("REDIS_ADDR") != ""
