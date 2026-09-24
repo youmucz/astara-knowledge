@@ -59,6 +59,20 @@ pins `expectedSQLiteMigrationVersion` (currently 102) and asserts every column
 the fork's Go models expect, so a mis-ordered or missing fork migration fails
 the build rather than production.
 
+**Renumbering is only safe before a release.** `golang-migrate` records the
+applied *version number*, not the migration's contents, so renumbering a
+migration that a database has already applied makes that database re-apply it
+at the new number. The versioned (PostgreSQL) files survive this because they
+use `ADD COLUMN IF NOT EXISTS` / `CREATE UNIQUE INDEX IF NOT EXISTS`, but
+SQLite has no `ADD COLUMN IF NOT EXISTS`, so the astara SQLite files use bare
+`ALTER TABLE ... ADD COLUMN` and would fail with `duplicate column name`,
+leaving the migration dirty. Both renumberings so far happened while
+`implementation_version` was still `0.1.0-astara.1` and no image had been
+published, so no deployed database can be affected. Once an implementation
+version is released, never renumber its migrations — add a new migration
+instead, and if a SQLite database is already dirty, clear the failed version
+and re-mark it before retrying.
+
 ## Release verification
 
 Run the local gates:
