@@ -7,7 +7,7 @@ subtree of the other.
 ## Upstream baseline and sync
 
 The `0.1.0-astara.1` release tracks upstream main at commit
-`3e8b0bfc80b845b2d4b2ed683994748741450a97`, the v0.8.2 development line
+`967ed097062c61723045ae103b665982728dc572`, the v0.8.2 development line
 (upstream documents v0.8.2 but has not created the tag, so the commit is the
 authoritative anchor). The previous baseline was the v0.8.0 tag,
 `1edcd54b43606d9079bb36650efe3f68707a79ea`. A local checkout should keep:
@@ -15,7 +15,7 @@ authoritative anchor). The previous baseline was the v0.8.0 tag,
 ```bash
 git remote add upstream https://github.com/Tencent/WeKnora.git
 git fetch upstream main
-git update-ref refs/remotes/upstream/main 3e8b0bfc80b845b2d4b2ed683994748741450a97
+git update-ref refs/remotes/upstream/main 967ed097062c61723045ae103b665982728dc572
 ```
 
 Upstream's git transport is reachable over SSH when HTTPS is blocked:
@@ -36,14 +36,28 @@ implementation version.
 
 ## Migration numbering
 
-The fork's migrations are renumbered past upstream's range so a fork-only
-migration can never share a version with an upstream one: versioned
-`000111`-`000113` (external identity, embedded identity, document identity) and
-SQLite `000031`-`000033`. Upstream's own `000091`-`000093` / `000013`-`000015`
-are unrelated migrations at those versions. `golang-migrate` refuses to load a
-directory with a duplicate version, so a collision fails every deployment.
-`internal/database/migration_sqlite_versioned_schema_test.go` pins the
-resulting `expectedSQLiteMigrationVersion` (33).
+Upstream and the fork both take the next free migration number, so a fork-only
+migration will collide with a new upstream one sooner or later — and a
+collision is not a merge inconvenience: git keeps both files at the same
+version, `golang-migrate` refuses to load the directory, and every deployment
+fails to migrate. This has already happened twice (upstream `000091`-`000093` /
+`000013`-`000015`, then upstream `000111` / `000031`).
+
+The fork therefore reserves a wide, high range for its own migrations:
+
+| Chain | Upstream range | Fork range |
+| --- | --- | --- |
+| versioned (PostgreSQL) | `000000`-`000114` | `000200`-`000202` |
+| SQLite | `000000`-`000034` | `000100`-`000102` |
+
+The fork's three migrations are external identity (`000200` / `000100`),
+embedded identity (`000201` / `000101`) and document identity (`000202` /
+`000102`). When syncing, if upstream adds a migration inside the fork's
+reserved range, move the fork migration further out rather than reusing an
+upstream number. `internal/database/migration_sqlite_versioned_schema_test.go`
+pins `expectedSQLiteMigrationVersion` (currently 102) and asserts every column
+the fork's Go models expect, so a mis-ordered or missing fork migration fails
+the build rather than production.
 
 ## Release verification
 

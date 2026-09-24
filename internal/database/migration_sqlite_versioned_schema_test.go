@@ -21,6 +21,7 @@ var versionedSQLiteTables = []string{
 	"task_pending_ops",
 	"task_dead_letters",
 	"system_settings",
+	"model_catalog_configs",
 	"knowledge_processing_spans",
 	"knowledge_tag_relations",
 	"browser_devices",
@@ -38,23 +39,24 @@ var versionedSQLiteTables = []string{
 // versionedSQLiteColumns maps each existing table to the columns that the
 // versioned migrations add and the SQLite baseline was missing.
 var versionedSQLiteColumns = map[string][]string{
-	"memory_subjects": {"extraction_state"},     // 000094
-	"memory_items":    {"replaces_id"},          // 000094
-	"tenants":         {"api_principal_config"}, // 000064
+	"model_catalog_configs": {"version", "overlay", "history", "updated_by", "updated_at"}, // 000034
+	"memory_subjects":       {"extraction_state"},                                          // 000094
+	"memory_items":          {"replaces_id"},                                               // 000094
+	"tenants":               {"api_principal_config"},                                      // 000064
 	"users": {
 		"is_system_admin",                // 000053
-		"external_system", "external_id", // 000031 (astara external identity)
+		"external_system", "external_id", // 000100 (astara external identity)
 	},
 	"knowledges": {
 		"pending_subtasks_count", // 000056
 		"profile",                // 000101
 
-		"external_system", "external_id", "content_hash", "source_revision", // 000033 (astara document identity)
+		"external_system", "external_id", "content_hash", "source_revision", // 000102 (astara document identity)
 	},
 	"knowledge_bases": {
 		"profile_config", "generated_profile", // 000101
 
-		"external_system", "external_id", // 000031 (astara external identity)
+		"external_system", "external_id", // 000100 (astara external identity)
 	},
 	"messages": {
 		"attachments", "usage", // 000034, 000085
@@ -78,15 +80,15 @@ var versionedSQLiteColumns = map[string][]string{
 	"tenant_user_env_vars": {
 		"principal_type", "principal_id", "sandbox_config_id", "skill_id", "name", "value",
 	}, // 000028
-	"tenant_members": {"permission_revision"}, // 000032 (astara embedded identity)
+	"tenant_members": {"permission_revision"}, // 000101 (astara embedded identity)
 }
 
-// expectedSQLiteMigrationVersion is the upstream SQLite maximum (000030)
-// followed by the astara migrations, which are renumbered past upstream's
-// range so a fork-only migration can never share a version with an upstream
-// one: 000031 external identity, 000032 embedded identity, 000033 document
-// identity.
-const expectedSQLiteMigrationVersion = 33
+// expectedSQLiteMigrationVersion is the highest SQLite migration. Upstream's
+// own chain ends at 000034 (model catalog config); the astara migrations sit
+// well past it in a reserved 000100+ range so a fork-only migration cannot
+// collide with a new upstream one on the next sync: 000100 external identity,
+// 000101 embedded identity, 000102 document identity.
+const expectedSQLiteMigrationVersion = 102
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	repoRoot := sqliteRepoRoot(t)
@@ -118,6 +120,13 @@ func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	require.True(t, sqliteIndexExists(t, db, "idx_messages_session_created_id"),
 		"SQLite migrations must add the session/created_at index") // 000106
 	assertSQLiteAgentHistoryQueriesUseTheIndex(t, db)
+
+	var catalogVersion int
+	var catalogOverlay string
+	catalogRow := db.QueryRow("SELECT version, overlay FROM model_catalog_configs WHERE id = 1")
+	require.NoError(t, catalogRow.Scan(&catalogVersion, &catalogOverlay))
+	require.Zero(t, catalogVersion)
+	require.JSONEq(t, `{"providers":{}}`, catalogOverlay)
 
 	assertSQLiteShareLinkInvitationsWork(t, db)
 	assertSQLiteMCPOAuthPrincipalUpsertWorks(t, db)

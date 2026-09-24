@@ -179,6 +179,12 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewUserRepository))
 	must(container.Provide(repository.NewAuthTokenRepository))
 	must(container.Provide(repository.NewSystemSettingRepository))
+	// The model catalog console is an admin surface over the model catalog
+	// table; its repository needs only the DB, which the knowledge-only
+	// profile provides. Upstream's other additions here (MCP, sandbox config,
+	// tenant skill and custom-agent repositories) are already registered
+	// below under their feature guards, so they are not repeated.
+	must(container.Provide(repository.NewModelCatalogRepository))
 	if knowledgeOnly {
 		must(container.Provide(newDisabledGraphRepository, dig.As(new(interfaces.RetrieveGraphRepository))))
 	} else {
@@ -286,6 +292,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewModelService))
 	must(container.Provide(service.NewUserService))
 	must(container.Provide(service.NewSystemSettingService))
+	must(container.Provide(service.NewModelCatalogService))
 	if !knowledgeOnly {
 		must(container.Provide(service.NewAgentShareService))
 		must(container.Provide(service.NewDatasetService))

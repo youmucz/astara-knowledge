@@ -2,7 +2,7 @@
   "schema_version": 1,
   "implementation_version": "0.1.0-astara.1",
   "upstream_baseline": "v0.8.2",
-  "upstream_commit": "3e8b0bfc80b845b2d4b2ed683994748741450a97",
+  "upstream_commit": "967ed097062c61723045ae103b665982728dc572",
   "feature_profile": "astara-knowledge",
   "contracts": {"api": 1, "ui": 1, "source": 1, "tool": 1, "readiness": 1, "migration": 1},
   "images": {

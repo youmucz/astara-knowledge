@@ -7,7 +7,7 @@ const (
 	// Upstream documents v0.8.2 but has not tagged it, so the commit is the
 	// authoritative anchor.
 	UpstreamBaseline         = "v0.8.2"
-	UpstreamCommit           = "3e8b0bfc80b845b2d4b2ed683994748741450a97"
+	UpstreamCommit           = "967ed097062c61723045ae103b665982728dc572"
 	APIContractVersion       = 1
 	UIContractVersion        = 1
 	SourceContractVersion    = 1
