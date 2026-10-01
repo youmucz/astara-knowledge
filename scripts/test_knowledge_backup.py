@@ -51,7 +51,7 @@ def _write_backup(
         "schemaVersion": 1,
         "kind": "astara-knowledge-backup",
         "artifacts": artifacts,
-        "identity": {"implementation_version": "0.1.0-astara.1", "migration_position": 93},
+        "identity": {"implementation_version": "0.8.2-astara.1", "migration_position": 202},
     }
     (root / "backup-manifest.json").write_text(json.dumps(manifest, indent=2))
 
@@ -62,7 +62,7 @@ class BackupIntegrityTests(unittest.TestCase):
             root = pathlib.Path(name)
             _write_backup(root)
             manifest = verify_backup_integrity(root)
-            self.assertEqual(manifest["identity"]["migration_position"], 93)
+            self.assertEqual(manifest["identity"]["migration_position"], 202)
 
     def test_missing_artifact_fails_closed(self):
         with tempfile.TemporaryDirectory() as name:

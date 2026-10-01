@@ -27,15 +27,15 @@ SBOM_DIGEST = "sha256:" + "c" * 64
 def inputs(**overrides):
     base = {
         "release": {
-            "version": "0.1.0-astara.1",
+            "version": "0.8.2-astara.1",
             "upstream_baseline": "v0.8.2",
             "upstream_commit": "1" * 40,
             "feature_profile": "astara-knowledge",
         },
-        "source": {"revision": "2" * 40, "workflow_ref": "refs/tags/v0.1.0-astara.1"},
+        "source": {"revision": "2" * 40, "workflow_ref": "refs/tags/v0.8.2-astara.1"},
         "images": {
             "api": {
-                "ref": f"ghcr.io/youmucz/astara-knowledge-api:0.1.0-astara.1@{DIGEST}",
+                "ref": f"ghcr.io/youmucz/astara-knowledge-api:0.8.2-astara.1@{DIGEST}",
                 "digest": DIGEST,
             }
         },
@@ -117,7 +117,7 @@ class PublishClosureTest(unittest.TestCase):
 
     def test_unpinned_ref_rejected(self):
         code, _, stderr = self.run_main(
-            inputs(images={"api": {"ref": "ghcr.io/youmucz/astara-knowledge-api:0.1.0-astara.1", "digest": DIGEST}}),
+            inputs(images={"api": {"ref": "ghcr.io/youmucz/astara-knowledge-api:0.8.2-astara.1", "digest": DIGEST}}),
             None,
         )
         self.assertEqual(code, 2)

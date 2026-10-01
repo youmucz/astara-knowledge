@@ -1,7 +1,7 @@
 package astara
 
 const (
-	ImplementationVersion = "0.1.0-astara.1"
+	ImplementationVersion = "0.8.2-astara.1"
 	// UpstreamBaseline is the upstream release this fork's main is synced to,
 	// and UpstreamCommit is the exact upstream main commit merged into it.
 	// Upstream tagged v0.8.2 at 3e8b0bfc; main has since advanced past the

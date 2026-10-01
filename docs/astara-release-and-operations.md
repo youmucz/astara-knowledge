@@ -6,12 +6,14 @@ subtree of the other.
 
 ## Upstream baseline and sync
 
-The `0.1.0-astara.1` release tracks upstream main at commit
+The `0.8.2-astara.1` release tracks upstream main at commit
 `bccb4b151bae403508da77fbb174efc79dc47c1a`, the v0.8.2 development line
 (upstream tagged v0.8.2 at `3e8b0bfc80b845b2d4b2ed683994748741450a97`; main
 has since advanced past the tag, so the merged commit is the authoritative
 anchor). The previous baseline was the v0.8.0 tag,
-`1edcd54b43606d9079bb36650efe3f68707a79ea`. A local checkout should keep:
+`1edcd54b43606d9079bb36650efe3f68707a79ea`. The version line was renamed
+from the placeholder `0.1.0-astara.1` to the baseline-aligned `0.8.2-astara.1`
+before first publication; no image was ever published under the old string. A local checkout should keep:
 
 ```bash
 git remote add upstream https://github.com/Tencent/WeKnora.git
@@ -174,7 +176,7 @@ commit before any action:
    in the triage issue.
 2. **Patch lane.** For reachable findings, create an emergency fork branch
    from the current release commit, apply the minimal upstream fix, bump the
-   patch segment of the implementation version (`0.1.0-astara.2`), and run
+   astara segment of the implementation version (`0.8.2-astara.2`), and run
    the release workflow on a `v*-astara.*` tag.
 3. **Pin bump.** Record the new image digests in Plane's dependency manifest
    through a release PR that also re-records the compatibility matrix row

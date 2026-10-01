@@ -2,7 +2,7 @@ name: astara-knowledge
 
 services:
   api:
-    image: ghcr.io/youmucz/astara-knowledge-api:0.1.0-astara.1
+    image: ghcr.io/youmucz/astara-knowledge-api:0.8.2-astara.1
     environment:
       WEKNORA_FEATURE_PROFILE: astara-knowledge
       ASTARA_SERVICE_AUTH_SECRET: ${ASTARA_SERVICE_AUTH_SECRET:?required}
@@ -27,12 +27,12 @@ services:
       retries: 12
 
   web:
-    image: ghcr.io/youmucz/astara-knowledge-web:0.1.0-astara.1
+    image: ghcr.io/youmucz/astara-knowledge-web:0.8.2-astara.1
     depends_on:
       api: {condition: service_healthy}
 
   docreader:
-    image: ghcr.io/youmucz/astara-knowledge-docreader:0.1.0-astara.1
+    image: ghcr.io/youmucz/astara-knowledge-docreader:0.8.2-astara.1
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import socket; s=socket.create_connection((\"127.0.0.1\",50051),2); s.close()'"]
       interval: 10s

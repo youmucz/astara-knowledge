@@ -113,7 +113,7 @@ jobs:
           push: true
           provenance: mode=max
           sbom: true
-          tags: ghcr.io/youmucz/astara-knowledge-${{ matrix.image }}:0.1.0-astara.1
+          tags: ghcr.io/youmucz/astara-knowledge-${{ matrix.image }}:0.8.2-astara.1
       - uses: sigstore/cosign-installer@v3
       - name: Sign immutable image identity
         env:

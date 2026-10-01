@@ -5,7 +5,7 @@
   "required": ["schema_version", "implementation_version", "upstream_baseline", "upstream_commit", "feature_profile", "contracts", "images"],
   "properties": {
     "schema_version": {"const": 1},
-    "implementation_version": {"const": "0.1.0-astara.1"},
+    "implementation_version": {"const": "0.8.2-astara.1"},
     "upstream_baseline": {"const": "v0.8.2"},
     "upstream_commit": {"const": "bccb4b151bae403508da77fbb174efc79dc47c1a"},
     "feature_profile": {"const": "astara-knowledge"},
@@ -23,9 +23,9 @@
       "additionalProperties": false,
       "required": ["api", "web", "docreader"],
       "properties": {
-        "api": {"const": "ghcr.io/youmucz/astara-knowledge-api:0.1.0-astara.1"},
-        "web": {"const": "ghcr.io/youmucz/astara-knowledge-web:0.1.0-astara.1"},
-        "docreader": {"const": "ghcr.io/youmucz/astara-knowledge-docreader:0.1.0-astara.1"}
+        "api": {"const": "ghcr.io/youmucz/astara-knowledge-api:0.8.2-astara.1"},
+        "web": {"const": "ghcr.io/youmucz/astara-knowledge-web:0.8.2-astara.1"},
+        "docreader": {"const": "ghcr.io/youmucz/astara-knowledge-docreader:0.8.2-astara.1"}
       }
     }
   }
