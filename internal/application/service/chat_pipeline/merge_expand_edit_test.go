@@ -69,7 +69,7 @@ func TestExpandShortContextRejectsStaleChunkDocumentMapping(t *testing.T) {
 	plugin := &PluginMerge{chunkRepo: repo}
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(1))
 	result := &types.SearchResult{ID: "base", KnowledgeID: "allowed", ChunkType: string(types.ChunkTypeText), Content: "allowed body"}
-	got := plugin.expandShortContextWithNeighbors(ctx, &types.ChatManage{}, []*types.SearchResult{result})
+	got := plugin.expandShortContextWithNeighbors(ctx, []*types.SearchResult{result})
 	if len(got) != 1 || got[0].Content != "allowed body" {
 		t.Fatal("chunk mapping drift imported private content")
 	}
@@ -88,7 +88,7 @@ func TestExpandShortContextKeepsSourceCoordinates(t *testing.T) {
 		Content: "edited base body", StartAt: 100, EndAt: 120,
 	}
 
-	got := plugin.expandShortContextWithNeighbors(ctx, &types.ChatManage{}, []*types.SearchResult{result})
+	got := plugin.expandShortContextWithNeighbors(ctx, []*types.SearchResult{result})
 	if len(got) != 1 {
 		t.Fatalf("result count = %d, want 1", len(got))
 	}

@@ -51,9 +51,9 @@ type ClientConfig struct {
 
 // Document represents a document to authorize.
 type Document struct {
-	TenantID       string `json:"tenant_id"`
+	TenantID        string `json:"tenant_id"`
 	KnowledgeBaseID string `json:"knowledge_base_id"`
-	KnowledgeID    string `json:"knowledge_id"`
+	KnowledgeID     string `json:"knowledge_id"`
 }
 
 // AuthorizationRequest is the POST body sent to the authorization server.
@@ -67,15 +67,15 @@ type AuthorizationRequest struct {
 
 // AuthorizedDocument is a document with its authorization revision.
 type AuthorizedDocument struct {
-	TenantID       string `json:"tenant_id"`
+	TenantID        string `json:"tenant_id"`
 	KnowledgeBaseID string `json:"knowledge_base_id"`
-	KnowledgeID    string `json:"knowledge_id"`
-	Revision       string `json:"revision"`
+	KnowledgeID     string `json:"knowledge_id"`
+	Revision        string `json:"revision"`
 }
 
 // AuthorizationResponse is the response from the authorization server.
 type AuthorizationResponse struct {
-	ContractVersion int                 `json:"contract_version"`
+	ContractVersion int                  `json:"contract_version"`
 	Documents       []AuthorizedDocument `json:"documents"`
 }
 

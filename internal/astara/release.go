@@ -4,10 +4,11 @@ const (
 	ImplementationVersion = "0.1.0-astara.1"
 	// UpstreamBaseline is the upstream release this fork's main is synced to,
 	// and UpstreamCommit is the exact upstream main commit merged into it.
-	// Upstream documents v0.8.2 but has not tagged it, so the commit is the
+	// Upstream tagged v0.8.2 at 3e8b0bfc; main has since advanced past the
+	// tag on the v0.8.2 development line, and the merged commit is the
 	// authoritative anchor.
 	UpstreamBaseline         = "v0.8.2"
-	UpstreamCommit           = "967ed097062c61723045ae103b665982728dc572"
+	UpstreamCommit           = "bccb4b151bae403508da77fbb174efc79dc47c1a"
 	APIContractVersion       = 1
 	UIContractVersion        = 1
 	SourceContractVersion    = 1

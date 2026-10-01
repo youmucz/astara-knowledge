@@ -286,6 +286,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 
 		RegisterAuthRoutes(v1, params.AuthHandler, rbacGuards)
 		RegisterKnowledgeBaseRoutes(v1, params.KBHandler, rbacGuards)
+		RegisterImageAttrRoutes(v1, params.KBHandler, rbacGuards)
 		RegisterKnowledgeBaseActivityRoutes(v1, params.AuditLogHandler, rbacGuards)
 		// KB-scoped image proxy: lets tenants render images embedded in
 		// org-shared / agent-visible KB content, which the tenant-scoped

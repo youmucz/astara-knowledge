@@ -22,6 +22,7 @@ var versionedSQLiteTables = []string{
 	"task_dead_letters",
 	"system_settings",
 	"model_catalog_configs",
+	"chunk_images",
 	"knowledge_processing_spans",
 	"knowledge_tag_relations",
 	"browser_devices",
@@ -70,6 +71,7 @@ var versionedSQLiteColumns = map[string][]string{
 	"tenant_invitations": {"token", "accepted_count"},        // 000054
 	"embed_channels":     {"allow_memory"},                   // 000060
 	"im_channels":        {"locale"},                         // 000030
+	"chunks":             {"source_locators"},                // 000036
 	"mcp_oauth_tokens":   {"principal_type", "principal_id"}, // 000064
 	"mcp_tool_approvals": {"enabled"},                        // 000091
 	"message_artifacts":  {"deleted_at"},                     // 000107
@@ -84,10 +86,11 @@ var versionedSQLiteColumns = map[string][]string{
 }
 
 // expectedSQLiteMigrationVersion is the highest SQLite migration. Upstream's
-// own chain ends at 000034 (model catalog config); the astara migrations sit
-// well past it in a reserved 000100+ range so a fork-only migration cannot
-// collide with a new upstream one on the next sync: 000100 external identity,
-// 000101 embedded identity, 000102 document identity.
+// own chain now ends at 000036 (chunk images 000035, chunk source locators
+// 000036, renumbered past the fork's 000034 model catalog config); the astara
+// migrations sit well past it in a reserved 000100+ range so a fork-only
+// migration cannot collide with a new upstream one on the next sync: 000100
+// external identity, 000101 embedded identity, 000102 document identity.
 const expectedSQLiteMigrationVersion = 102
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {

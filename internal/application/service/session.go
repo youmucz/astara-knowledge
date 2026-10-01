@@ -129,6 +129,8 @@ type sessionService struct {
 	sandboxPinner         *SessionSandboxPinner
 	sandboxPolicy         WorkspaceSandboxPolicy
 	hostSandbox           sandbox.Manager
+	hostDesktop           bool
+	hostSkillTree         HostSkillTree
 	memoryService         interfaces.MemoryService // Service for cross-session long-term memory
 	// sandboxConfigRepo and tenantSkillRepo answer "which installed skills can
 	// this turn actually invoke". They are repositories rather than
@@ -219,6 +221,8 @@ func NewSessionService(cfg *config.Config,
 		sandboxPinner:         sandboxPinner,
 		sandboxPolicy:         sandboxPolicy,
 		hostSandbox:           hostSandbox.Manager,
+		hostDesktop:           hostSandbox.Desktop,
+		hostSkillTree:         hostSandbox.SkillTree,
 		memoryService:         memoryService,
 		sandboxConfigRepo:     sandboxConfigRepo,
 		tenantSkillRepo:       tenantSkillRepo,
@@ -1068,7 +1072,7 @@ func (s *sessionService) holdSandboxTurn(
 	mgr, _, err := resolveSandboxForExecution(
 		ctx, s.sandboxResolver, s.sandboxMgr, s.sandboxPinner,
 		tenantID, sessionID, configID, s.sandboxPolicy,
-		withLiteHostSandbox(s.hostSandbox),
+		withLiteHostSandbox(s.hostSandbox), withLiteDesktop(s.hostDesktop),
 	)
 	if err != nil {
 		logger.Warnf(ctx, "[sandbox] resolve config %s to begin turn of session %s failed: %v",

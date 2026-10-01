@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	astaraReadContractV1      = 1
+	astaraReadContractV1       = 1
 	astaraReadMaxBodyBytes     = 512 * 1024
 	astaraReadMaxResponseBytes = 2 * 1024 * 1024
 	astaraReadMinPage          = 1
@@ -39,10 +39,10 @@ type astaraReadDocument struct {
 // astaraReadAuthorizedRequest is the closed POST body for read-authorized.
 // Unknown fields are rejected at decode. page and page_size are mandatory.
 type astaraReadAuthorizedRequest struct {
-	ContractVersion int               `json:"contract_version"`
+	ContractVersion int                `json:"contract_version"`
 	Document        astaraReadDocument `json:"document"`
-	Page            int               `json:"page"`
-	PageSize        int               `json:"page_size"`
+	Page            int                `json:"page"`
+	PageSize        int                `json:"page_size"`
 }
 
 // astaraReadDocumentMeta is the document metadata snapshot returned in the
@@ -93,7 +93,7 @@ type astaraReadData struct {
 // astaraReadAuthorizedResponse is the bounded JSON contract returned by
 // POST /api/v1/astara/read-authorized.
 type astaraReadAuthorizedResponse struct {
-	ContractVersion int               `json:"contract_version"`
+	ContractVersion int                `json:"contract_version"`
 	Document        astaraReadDocument `json:"document"`
 	Data            astaraReadData     `json:"data"`
 }

@@ -303,17 +303,19 @@ func (h *AstaraSearchAuthorizedHandler) SearchAuthorized(c *gin.Context) {
 	//    tagScopes: nil — no tag-based filtering.
 	searchCtx := context.WithValue(ctx, types.TenantIDContextKey, tenantID)
 	searchCtx = context.WithValue(searchCtx, types.TenantInfoContextKey, &tenantRow)
-	searchResults, err := h.sessionService.SearchKnowledge(
+	retrieval, err := h.sessionService.SearchKnowledge(
 		searchCtx,
 		nil,          // knowledgeBaseIDs
 		knowledgeIDs, // knowledgeIDs — explicit doc list
 		nil,          // tagScopes
 		query,
+		nil, // opts — keep the tenant RetrievalConfig
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "search failed"})
 		return
 	}
+	searchResults := retrieval.Results
 
 	// ── 8. Validate all results are within admitted scope ───────────────
 	//    ALL result IDs+KB must match admitted scope or reject WHOLE response.

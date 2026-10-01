@@ -77,12 +77,12 @@ func (s *embeddedSessionService) Mint(
 	ttl := embeddedSessionTTL()
 	expiresAt := time.Now().Add(ttl)
 	claims := jwt.MapClaims{
-		"user_id":            user.ID,
-		"tenant_id":          tenantID,
-		"permission_rev":     permissionRevision,
-		"type":               EmbeddedSessionClaimType,
-		"iat":                time.Now().Unix(),
-		"exp":                expiresAt.Unix(),
+		"user_id":        user.ID,
+		"tenant_id":      tenantID,
+		"permission_rev": permissionRevision,
+		"type":           EmbeddedSessionClaimType,
+		"iat":            time.Now().Unix(),
+		"exp":            expiresAt.Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString([]byte(getJwtSecret()))

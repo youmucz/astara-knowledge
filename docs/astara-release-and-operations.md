@@ -7,15 +7,16 @@ subtree of the other.
 ## Upstream baseline and sync
 
 The `0.1.0-astara.1` release tracks upstream main at commit
-`967ed097062c61723045ae103b665982728dc572`, the v0.8.2 development line
-(upstream documents v0.8.2 but has not created the tag, so the commit is the
-authoritative anchor). The previous baseline was the v0.8.0 tag,
+`bccb4b151bae403508da77fbb174efc79dc47c1a`, the v0.8.2 development line
+(upstream tagged v0.8.2 at `3e8b0bfc80b845b2d4b2ed683994748741450a97`; main
+has since advanced past the tag, so the merged commit is the authoritative
+anchor). The previous baseline was the v0.8.0 tag,
 `1edcd54b43606d9079bb36650efe3f68707a79ea`. A local checkout should keep:
 
 ```bash
 git remote add upstream https://github.com/Tencent/WeKnora.git
 git fetch upstream main
-git update-ref refs/remotes/upstream/main 967ed097062c61723045ae103b665982728dc572
+git update-ref refs/remotes/upstream/main bccb4b151bae403508da77fbb174efc79dc47c1a
 ```
 
 Upstream's git transport is reachable over SSH when HTTPS is blocked:
@@ -40,17 +41,25 @@ Upstream and the fork both take the next free migration number, so a fork-only
 migration will collide with a new upstream one sooner or later — and a
 collision is not a merge inconvenience: git keeps both files at the same
 version, `golang-migrate` refuses to load the directory, and every deployment
-fails to migrate. This has already happened twice (upstream `000091`-`000093` /
-`000013`-`000015`, then upstream `000111` / `000031`).
+fails to migrate. This has already happened three times (upstream
+`000091`-`000093` / `000013`-`000015`, then upstream `000111` / `000031`,
+then upstream `000112`-`000114` / `000032`-`000033` landing on the fork's
+renumbered `000114` / `000034` `model_catalog_config`).
 
 The fork therefore reserves a wide, high range for its own migrations:
 
 | Chain | Upstream range | Fork range |
 | --- | --- | --- |
-| versioned (PostgreSQL) | `000000`-`000114` | `000200`-`000202` |
-| SQLite | `000000`-`000034` | `000100`-`000102` |
+| versioned (PostgreSQL) | `000000`-`000117` | `000200`-`000202` |
+| SQLite | `000000`-`000036` | `000100`-`000102` |
 
-The fork's three migrations are external identity (`000200` / `000100`),
+Upstream-origin migrations keep the next free slot in the fork's chain after
+renumbering: `model_catalog_config` sits at `000114` / `000034` (renumbered
+from upstream `000111` / `000031`), and the 2026-10 sync moved upstream's new
+`embeddings_knowledge_chunk_index`, `chunk_images` and `chunk_source_locators`
+to `000115`-`000117` / `000035`-`000036`, preserving upstream's relative
+order past the renumbered `model_catalog_config`. The fork's three own
+migrations are external identity (`000200` / `000100`),
 embedded identity (`000201` / `000101`) and document identity (`000202` /
 `000102`). When syncing, if upstream adds a migration inside the fork's
 reserved range, move the fork migration further out rather than reusing an

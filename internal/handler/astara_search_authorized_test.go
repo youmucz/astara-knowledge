@@ -41,6 +41,8 @@ type stubSearchSessionService struct {
 	capturedKBIDs []string
 	// captured tagScopes
 	capturedTagScopes []types.TagScope
+	// captured retrieval options (the endpoint passes nil to keep tenant defaults)
+	capturedOpts *types.KnowledgeSearchOptions
 	// results to return (configurable)
 	results []*types.SearchResult
 	// err to return (configurable)
@@ -50,7 +52,7 @@ type stubSearchSessionService struct {
 	run func(ctx context.Context, knowledgeBaseIDs []string, knowledgeIDs []string, tagScopes []types.TagScope, query string)
 }
 
-func (s *stubSearchSessionService) SearchKnowledge(ctx context.Context, knowledgeBaseIDs []string, knowledgeIDs []string, tagScopes []types.TagScope, query string) ([]*types.SearchResult, error) {
+func (s *stubSearchSessionService) SearchKnowledge(ctx context.Context, knowledgeBaseIDs []string, knowledgeIDs []string, tagScopes []types.TagScope, query string, opts *types.KnowledgeSearchOptions) (*types.RetrievalResult, error) {
 	if tid, ok := ctx.Value(types.TenantIDContextKey).(uint64); ok {
 		s.capturedTenantID = tid
 	}
@@ -58,13 +60,14 @@ func (s *stubSearchSessionService) SearchKnowledge(ctx context.Context, knowledg
 	s.capturedQuery = query
 	s.capturedKBIDs = knowledgeBaseIDs
 	s.capturedTagScopes = tagScopes
+	s.capturedOpts = opts
 	if s.run != nil {
 		s.run(ctx, knowledgeBaseIDs, knowledgeIDs, tagScopes, query)
 	}
 	if s.err != nil {
 		return nil, s.err
 	}
-	return s.results, nil
+	return &types.RetrievalResult{Results: s.results}, nil
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -305,6 +308,9 @@ func TestSearchAuthorizedSuccessShape(t *testing.T) {
 	}
 	if session.capturedTagScopes != nil {
 		t.Fatalf("TagScopes=%v, want nil", session.capturedTagScopes)
+	}
+	if session.capturedOpts != nil {
+		t.Fatalf("opts=%v, want nil (tenant RetrievalConfig)", session.capturedOpts)
 	}
 	if session.capturedQuery != "test query" {
 		t.Fatalf("query=%q", session.capturedQuery)

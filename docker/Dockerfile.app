@@ -1,6 +1,17 @@
+# Reuse the CA bundle already shipped in the Go build image so slim stages
+# can reach HTTPS mirrors before installing Debian's ca-certificates package.
+FROM golang:1.26-bookworm AS certificates
+
 # Build extension and daemon from the same pinned source on the runtime architecture.
 FROM --platform=$TARGETPLATFORM node:24-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e AS browserskill
 WORKDIR /build
+COPY --from=certificates /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+ARG APK_MIRROR_ARG
+RUN if [ -n "$APK_MIRROR_ARG" ]; then \
+        mirror="${APK_MIRROR_ARG%/}"; \
+        case "$mirror" in http://*|https://*) ;; *) mirror="https://$mirror" ;; esac; \
+        sed -i "s@https\?://deb\.debian\.org@${mirror}@g" /etc/apt/sources.list.d/debian.sources; \
+    fi
 RUN apt-get update && \
     apt-get install -y --no-install-recommends git python3 ca-certificates curl build-essential cmake pkg-config && \
     rm -rf /var/lib/apt/lists/*
@@ -13,7 +24,7 @@ ARG TARGETARCH
 RUN bash scripts/build_browserskill.sh /opt/weknora/browserskill "${TARGETOS}/${TARGETARCH}"
 
 # Build stage
-FROM golang:1.26-bookworm AS builder
+FROM certificates AS builder
 
 WORKDIR /app
 
@@ -30,7 +41,9 @@ ENV GOSUMDB=${GOSUMDB_ARG}
 
 # Install dependencies
 RUN if [ -n "$APK_MIRROR_ARG" ]; then \
-        sed -i "s@deb.debian.org@${APK_MIRROR_ARG}@g" /etc/apt/sources.list.d/debian.sources; \
+        mirror="${APK_MIRROR_ARG%/}"; \
+        case "$mirror" in http://*|https://*) ;; *) mirror="https://$mirror" ;; esac; \
+        sed -i "s@https\?://deb\.debian\.org@${mirror}@g" /etc/apt/sources.list.d/debian.sources; \
     fi && \
     apt-get update && \
     apt-get install -y git build-essential libsqlite3-dev curl
@@ -99,18 +112,19 @@ COPY --from=browserskill /opt/weknora/browserskill /opt/weknora/browserskill
 # Create a non-root user first
 RUN useradd -m -s /bin/bash appuser
 
-# First, install ca-certificates without mirror to ensure HTTPS works
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
+# Bootstrap HTTPS without contacting upstream Debian, then install/update the
+# distro certificate package together with the other runtime dependencies.
+COPY --from=certificates /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
-# Then switch to mirror if specified and install other packages
+# Configure the mirror before the first apt request.
 RUN if [ -n "$APK_MIRROR_ARG" ]; then \
-        sed -i "s@deb.debian.org@${APK_MIRROR_ARG}@g" /etc/apt/sources.list.d/debian.sources; \
+        mirror="${APK_MIRROR_ARG%/}"; \
+        case "$mirror" in http://*|https://*) ;; *) mirror="https://$mirror" ;; esac; \
+        sed -i "s@https\?://deb\.debian\.org@${mirror}@g" /etc/apt/sources.list.d/debian.sources; \
     fi && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-        build-essential postgresql-client default-mysql-client tzdata sed curl bash vim wget \
+        ca-certificates build-essential postgresql-client default-mysql-client tzdata sed curl bash vim wget \
         libsqlite3-0 \
         python3 python3-pip python3-dev libffi-dev libssl-dev \
         nodejs npm \

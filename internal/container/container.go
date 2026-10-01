@@ -242,6 +242,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	if !knowledgeOnly {
 		logger.Debugf(ctx, "[Container] Registering MCP manager...")
 		must(container.Provide(mcp.NewMCPManager))
+		must(container.Invoke(registerMCPCleanup))
 		must(container.Provide(mcp.NewOAuthManager))
 	}
 
@@ -444,7 +445,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 			pinner *service.SessionSandboxPinner,
 			host service.HostSandboxManager,
 		) *service.HostSessionResolver {
-			return service.NewHostSessionResolver(pinner, host.Manager)
+			return service.NewHostSessionResolver(pinner, host.Manager, host.Desktop)
 		}))
 		must(container.Provide(func(
 			mgr sandbox.Manager,
@@ -736,6 +737,18 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		// Wiki operation rows are durable, while their wake-up triggers may be
 		// lost across a process restart. Re-arm only in a valid profile.
 		must(container.Invoke(recoverPendingWikiTasks))
+	}
+
+	// BrowserSkill is registered when its manager is constructed, which is
+	// early, so reverse-order cleanup would run it last. Force the manager
+	// to exist, then run that hook first so a slow cron stop cannot leave
+	// the daemon alive until the process is killed. The manager is only
+	// provided outside the knowledge-only profile, so the promotion is
+	// guarded with it.
+	if !knowledgeOnly {
+		must(container.Invoke(func(cleaner interfaces.ResourceCleaner, _ *browserskill.Manager) {
+			cleaner.Promote("BrowserSkill")
+		}))
 	}
 
 	logger.Infof(ctx, "[Container] Container initialization completed successfully")
@@ -1876,6 +1889,15 @@ func registerLangfuseCleanup(mgr *langfuse.Manager, cleaner interfaces.ResourceC
 	})
 }
 
+// registerMCPCleanup closes MCP connections on shutdown, so remote servers see
+// their sessions end instead of waiting for them to time out.
+func registerMCPCleanup(mgr *mcp.MCPManager, cleaner interfaces.ResourceCleaner) {
+	cleaner.RegisterWithName("MCPManager", func() error {
+		mgr.Shutdown()
+		return nil
+	})
+}
+
 // initDocReaderClient initializes the DocumentReader client (lightweight API).
 func initDocReaderClient(cfg *config.Config) (interfaces.DocumentReader, error) {
 	addr := strings.TrimSpace(os.Getenv("DOCREADER_ADDR"))
@@ -2093,7 +2115,7 @@ func startDataSourceScheduler(scheduler *datasource.Scheduler, cleaner interface
 	}
 
 	cleaner.RegisterWithName("DataSourceScheduler", func() error {
-		scheduler.Stop()
+		scheduler.StopWithin(cleanupStepTimeout)
 		return nil
 	})
 }
@@ -2111,7 +2133,7 @@ func startHousekeepingService(svc *service.HousekeepingService, cleaner interfac
 		logger.Warnf(context.Background(), "[Container] housekeeping start failed: %v", err)
 	}
 	cleaner.RegisterWithName("KnowledgeHousekeeping", func() error {
-		svc.Stop()
+		svc.StopWithin(cleanupStepTimeout)
 		return nil
 	})
 }
@@ -2127,7 +2149,7 @@ func startTenantSkillReaper(svc *service.TenantSkillService, cleaner interfaces.
 		logger.Warnf(context.Background(), "[Container] tenant skill reaper start failed: %v", err)
 	}
 	cleaner.RegisterWithName("TenantSkillReaper", func() error {
-		svc.Stop()
+		svc.StopWithin(cleanupStepTimeout)
 		return nil
 	})
 }
@@ -2203,7 +2225,7 @@ func startAuditLogRetention(
 ) {
 	runner.Start(context.Background())
 	cleaner.RegisterWithName("AuditLogRetentionRunner", func() error {
-		runner.Stop()
+		runner.StopWithin(cleanupStepTimeout)
 		return nil
 	})
 }

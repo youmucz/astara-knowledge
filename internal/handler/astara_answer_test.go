@@ -114,7 +114,7 @@ func TestStatelessAnswerDerivesTenantFromKnowledgeBases(t *testing.T) {
 	session := &stubAnswerSessionService{}
 	engine := answerTestEngine(t, session, kb)
 	recorder := answerRequest(t, engine, map[string]any{
-		"query":             "explain the policy",
+		"query":              "explain the policy",
 		"knowledge_base_ids": []string{"kb-1", "kb-2"},
 	})
 	if recorder.Code != http.StatusOK {
@@ -143,7 +143,7 @@ func TestStatelessAnswerRejectsCrossTenantScope(t *testing.T) {
 	}}
 	engine := answerTestEngine(t, &stubAnswerSessionService{}, kb)
 	recorder := answerRequest(t, engine, map[string]any{
-		"query":             "q",
+		"query":              "q",
 		"knowledge_base_ids": []string{"kb-1", "kb-2"},
 	})
 	if recorder.Code != http.StatusBadRequest {
@@ -168,7 +168,7 @@ func TestStatelessAnswerStreamsAnswerReferencesAndComplete(t *testing.T) {
 	}
 	engine := answerTestEngine(t, session, kb)
 	recorder := answerRequest(t, engine, map[string]any{
-		"query":             "q",
+		"query":              "q",
 		"knowledge_base_ids": []string{"kb-1"},
 	})
 	if recorder.Code != http.StatusOK {
@@ -201,7 +201,7 @@ func TestStatelessAnswerErrorEventFailsTheStream(t *testing.T) {
 	}
 	engine := answerTestEngine(t, session, kb)
 	recorder := answerRequest(t, engine, map[string]any{
-		"query":             "q",
+		"query":              "q",
 		"knowledge_base_ids": []string{"kb-1"},
 	})
 	if !strings.Contains(recorder.Body.String(), `"response_type":"error"`) {

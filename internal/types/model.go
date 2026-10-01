@@ -200,6 +200,9 @@ func (o *ModelSpecOverride) CompatJSON() json.RawMessage {
 // "value too long for type" failure at INSERT time.
 const ModelIDMaxLen = 64
 
+// ModelDisplayNameMaxLen matches models.display_name VARCHAR(255).
+const ModelDisplayNameMaxLen = 255
+
 // PlaneOwnedKnowledgeQAModelID is the reserved global model-row identity for
 // the KnowledgeQA vendor configuration pushed by Plane. The row is
 // tenant-global (tenant 0, builtin-visible) and exclusively maintained
